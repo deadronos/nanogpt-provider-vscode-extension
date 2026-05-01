@@ -26,7 +26,10 @@ export class NanoGptClient {
       params.routingMode === "subscription"
         ? "https://nano-gpt.com/api/subscription/v1"
         : "https://nano-gpt.com/api/v1";
-    const response = await this.fetchImpl(`${baseUrl}/models`, {
+    const url = new URL(`${baseUrl}/models`);
+    url.searchParams.set("detailed", "true");
+
+    const response = await this.fetchImpl(url, {
       headers: {
         Authorization: `Bearer ${params.apiKey}`,
         Accept: "application/json",

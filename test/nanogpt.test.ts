@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { NanoGptClient } from "../src/client.js";
 import {
   buildNanoGptChatCompletionRequest,
   collectSseTextDeltas,
@@ -142,5 +143,46 @@ describe("NanoGPT VS Code provider core", () => {
         content: [{ kind: "text", value: "1234" }, { kind: "text", value: "5678" }],
       }),
     ).toBe(2);
+  });
+
+  test("discovers models with detailed NanoGPT metadata", async () => {
+    const fetchCalls: Array<[string | URL | Request, RequestInit | undefined]> = [];
+    const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push([input, init]);
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "moonshotai/kimi-k2.5:thinking",
+              name: "Kimi K2.5 Thinking",
+              context_length: 262144,
+              max_output_tokens: 8192,
+              capabilities: {
+                vision: true,
+                tool_calling: true,
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const models = await client.discoverModels({
+      apiKey: "test-key",
+      routingMode: "paygo",
+    });
+
+    expect(String(fetchCalls[0]?.[0])).toBe("https://nano-gpt.com/api/v1/models?detailed=true");
+    expect(models[0]).toMatchObject({
+      id: "moonshotai/kimi-k2.5:thinking",
+      maxInputTokens: 253952,
+      maxOutputTokens: 8192,
+      capabilities: {
+        imageInput: true,
+        toolCalling: true,
+      },
+    });
   });
 });

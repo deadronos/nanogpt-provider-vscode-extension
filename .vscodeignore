@@ -5,5 +5,10 @@ node_modules/**
 dist/src/**
 dist/test/**
 *.vsix
+*.png
+.env
+.env.*
+.git/**
+.gitignore
 vitest.config.ts
 tsconfig.json
