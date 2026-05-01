@@ -28,13 +28,18 @@ const DEFAULT_MODELS: VscodeModelMetadata[] = [
 
 type ChatProviderApi = {
   provideLanguageModelChatInformation(
-    options: { silent: boolean },
+    options: { silent: boolean; configuration?: ProviderConfiguration },
     token: vscode.CancellationToken,
   ): Promise<VscodeModelMetadata[]>;
   provideLanguageModelChatResponse(
     model: VscodeModelMetadata,
     messages: readonly vscode.LanguageModelChatRequestMessage[],
-    options: { modelOptions?: { maxTokens?: number } },
+    options: {
+      modelOptions?: { maxTokens?: number };
+      configuration?: ProviderConfiguration;
+      tools?: readonly vscode.LanguageModelChatTool[];
+      toolMode?: vscode.LanguageModelChatToolMode;
+    },
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken,
   ): Promise<void>;
@@ -45,17 +50,45 @@ type ChatProviderApi = {
   ): Promise<number>;
 };
 
+type ProviderConfiguration = {
+  apiKey?: unknown;
+  routingMode?: unknown;
+  provider?: unknown;
+  models?: unknown;
+};
+
 function getConfig() {
   return vscode.workspace.getConfiguration("nanogpt");
 }
 
-function getRoutingMode(): NanoGptRoutingMode {
-  const value = getConfig().get<string>("routingMode", "subscription");
+function getRoutingMode(providerConfiguration?: ProviderConfiguration): NanoGptRoutingMode {
+  const value =
+    typeof providerConfiguration?.routingMode === "string"
+      ? providerConfiguration.routingMode
+      : getConfig().get<string>("routingMode", "subscription");
   return value === "paygo" ? "paygo" : "subscription";
 }
 
-async function resolveApiKey(context: vscode.ExtensionContext): Promise<string | undefined> {
+function getProvider(providerConfiguration?: ProviderConfiguration): string {
+  return typeof providerConfiguration?.provider === "string"
+    ? providerConfiguration.provider
+    : getConfig().get<string>("provider", "");
+}
+
+function getModelAllowlist(providerConfiguration?: ProviderConfiguration): string[] {
+  if (Array.isArray(providerConfiguration?.models)) {
+    return providerConfiguration.models.filter((model): model is string => typeof model === "string");
+  }
+
+  return getConfig().get<string[]>("models", []);
+}
+
+async function resolveApiKey(
+  context: vscode.ExtensionContext,
+  providerConfiguration?: ProviderConfiguration,
+): Promise<string | undefined> {
   return (
+    (typeof providerConfiguration?.apiKey === "string" ? providerConfiguration.apiKey.trim() : "") ||
     (await context.secrets.get(SECRET_KEY))?.trim() ||
     getConfig().get<string>("apiKey", "").trim() ||
     process.env.NANOGPT_API_KEY?.trim()
@@ -83,9 +116,38 @@ function toCoreMessages(
       if (part instanceof vscode.LanguageModelDataPart) {
         return { data: part.data, mimeType: part.mimeType };
       }
+      if (part instanceof vscode.LanguageModelToolCallPart) {
+        return { callId: part.callId, name: part.name, input: part.input };
+      }
+      if (part instanceof vscode.LanguageModelToolResultPart) {
+        return {
+          callId: part.callId,
+          content: part.content.map((contentPart) => {
+            if (contentPart instanceof vscode.LanguageModelTextPart) {
+              return { value: contentPart.value };
+            }
+            if (contentPart instanceof vscode.LanguageModelDataPart) {
+              return { data: contentPart.data, mimeType: contentPart.mimeType };
+            }
+            return {};
+          }),
+        };
+      }
       return {};
     }),
   }));
+}
+
+function toToolMode(
+  toolMode: vscode.LanguageModelChatToolMode | undefined,
+): "auto" | "required" | undefined {
+  if (toolMode === vscode.LanguageModelChatToolMode.Required) {
+    return "required";
+  }
+  if (toolMode === vscode.LanguageModelChatToolMode.Auto) {
+    return "auto";
+  }
+  return undefined;
 }
 
 class NanoGptLanguageModelProvider implements ChatProviderApi {
@@ -97,11 +159,11 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
   ) {}
 
   async provideLanguageModelChatInformation(
-    options: { silent: boolean },
+    options: { silent: boolean; configuration?: ProviderConfiguration },
     token: vscode.CancellationToken,
   ): Promise<VscodeModelMetadata[]> {
-    const apiKey = await resolveApiKey(this.context);
-    const allowlist = getConfig().get<string[]>("models", []);
+    const apiKey = await resolveApiKey(this.context, options.configuration);
+    const allowlist = getModelAllowlist(options.configuration);
 
     if (allowlist.length > 0) {
       const models = allowlist.map((id) => ({
@@ -124,7 +186,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     try {
       const models = await this.client.discoverModels({
         apiKey,
-        routingMode: getRoutingMode(),
+        routingMode: getRoutingMode(options.configuration),
         signal: createAbortSignal(token),
       });
       this.cachedModels = models.length > 0 ? models : DEFAULT_MODELS;
@@ -142,11 +204,16 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
   async provideLanguageModelChatResponse(
     model: VscodeModelMetadata,
     messages: readonly vscode.LanguageModelChatRequestMessage[],
-    options: { modelOptions?: { maxTokens?: number } },
+    options: {
+      modelOptions?: { maxTokens?: number };
+      configuration?: ProviderConfiguration;
+      tools?: readonly vscode.LanguageModelChatTool[];
+      toolMode?: vscode.LanguageModelChatToolMode;
+    },
     progress: vscode.Progress<vscode.LanguageModelResponsePart>,
     token: vscode.CancellationToken,
   ): Promise<void> {
-    const apiKey = await resolveApiKey(this.context);
+    const apiKey = await resolveApiKey(this.context, options.configuration);
     if (!apiKey) {
       throw new vscode.LanguageModelError("NanoGPT API key is not configured");
     }
@@ -155,11 +222,17 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
       apiKey,
       modelId: model.id,
       messages: toNanoGptMessages(toCoreMessages(messages)),
-      routingMode: getRoutingMode(),
-      provider: getConfig().get<string>("provider", ""),
+      routingMode: getRoutingMode(options.configuration),
+      provider: getProvider(options.configuration),
       maxTokens: options.modelOptions?.maxTokens,
+      tools: options.tools,
+      toolMode: toToolMode(options.toolMode),
       signal: createAbortSignal(token),
       onText: (text) => progress.report(new vscode.LanguageModelTextPart(text)),
+      onToolCall: (toolCall) =>
+        progress.report(
+          new vscode.LanguageModelToolCallPart(toolCall.callId, toolCall.name, toolCall.input),
+        ),
     });
   }
 

@@ -1,9 +1,11 @@
 import {
   buildNanoGptChatCompletionRequest,
-  collectSseTextDeltas,
+  NanoGptSseParser,
   mapNanoGptModelsToVscode,
   type NanoGptChatMessage,
+  type NanoGptResponsePart,
   type NanoGptRoutingMode,
+  type VscodeLikeTool,
   type VscodeModelMetadata,
 } from "./nanogpt.js";
 
@@ -58,8 +60,11 @@ export class NanoGptClient {
     routingMode: NanoGptRoutingMode;
     provider?: string;
     maxTokens?: number;
+    tools?: readonly VscodeLikeTool[];
+    toolMode?: "auto" | "required";
     signal?: AbortSignal;
     onText: (text: string) => void;
+    onToolCall?: (toolCall: Extract<NanoGptResponsePart, { type: "tool_call" }>) => void;
   }): Promise<void> {
     const request = buildNanoGptChatCompletionRequest(params);
     const response = await this.fetchImpl(request.url, {
@@ -79,6 +84,7 @@ export class NanoGptClient {
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    const parser = new NanoGptSseParser();
     let buffer = "";
 
     for (;;) {
@@ -91,14 +97,26 @@ export class NanoGptClient {
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? "";
 
-      for (const delta of collectSseTextDeltas(lines)) {
-        params.onText(delta);
-      }
+      this.emitParts(parser.acceptLines(lines), params);
     }
 
     buffer += decoder.decode();
-    for (const delta of collectSseTextDeltas(buffer.split(/\r?\n/))) {
-      params.onText(delta);
+    this.emitParts(parser.acceptLines(buffer.split(/\r?\n/)), params);
+  }
+
+  private emitParts(
+    parts: readonly NanoGptResponsePart[],
+    params: {
+      onText: (text: string) => void;
+      onToolCall?: (toolCall: Extract<NanoGptResponsePart, { type: "tool_call" }>) => void;
+    },
+  ): void {
+    for (const part of parts) {
+      if (part.type === "text") {
+        params.onText(part.text);
+      } else {
+        params.onToolCall?.(part);
+      }
     }
   }
 }

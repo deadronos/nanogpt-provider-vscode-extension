@@ -3,7 +3,7 @@ export const NANOGPT_SUBSCRIPTION_BASE_URL = "https://nano-gpt.com/api/subscript
 
 export type NanoGptRoutingMode = "subscription" | "paygo";
 
-export type NanoGptMessageRole = "system" | "user" | "assistant";
+export type NanoGptMessageRole = "system" | "user" | "assistant" | "tool";
 
 export type NanoGptImageUrlContentPart = {
   type: "image_url";
@@ -19,11 +19,23 @@ export type NanoGptTextContentPart = {
 
 export type NanoGptMessageContent =
   | string
+  | null
   | Array<NanoGptTextContentPart | NanoGptImageUrlContentPart>;
+
+export type NanoGptToolCall = {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string;
+  };
+};
 
 export type NanoGptChatMessage = {
   role: NanoGptMessageRole;
   content: NanoGptMessageContent;
+  tool_calls?: NanoGptToolCall[];
+  tool_call_id?: string;
 };
 
 export type VscodeLikePart = {
@@ -32,6 +44,10 @@ export type VscodeLikePart = {
   text?: unknown;
   data?: unknown;
   mimeType?: unknown;
+  callId?: unknown;
+  name?: unknown;
+  input?: unknown;
+  content?: unknown;
 };
 
 export type VscodeLikeMessage = {
@@ -75,6 +91,16 @@ export type VscodeModelMetadata = {
   };
 };
 
+export type VscodeLikeTool = {
+  name: string;
+  description: string;
+  inputSchema?: object;
+};
+
+export type NanoGptResponsePart =
+  | { type: "text"; text: string }
+  | { type: "tool_call"; callId: string; name: string; input: object };
+
 export type NanoGptRequest = {
   url: string;
   headers: Record<string, string>;
@@ -113,6 +139,10 @@ function getTextPartValue(part: VscodeLikePart): string {
   return "";
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function toBase64(data: Uint8Array): string {
   return Buffer.from(data).toString("base64");
 }
@@ -135,12 +165,78 @@ function toNanoGptImagePart(part: VscodeLikePart): NanoGptImageUrlContentPart | 
   };
 }
 
+function toToolCall(part: VscodeLikePart): NanoGptToolCall | null {
+  if (typeof part.callId !== "string" || typeof part.name !== "string") {
+    return null;
+  }
+
+  return {
+    id: part.callId,
+    type: "function",
+    function: {
+      name: part.name,
+      arguments: JSON.stringify(isObject(part.input) ? part.input : {}),
+    },
+  };
+}
+
+function toToolResultContent(part: VscodeLikePart): string | null {
+  if (typeof part.callId !== "string" || !Array.isArray(part.content)) {
+    return null;
+  }
+
+  const values = part.content.map((contentPart) => {
+    if (!isObject(contentPart)) {
+      return "";
+    }
+
+    const text = getTextPartValue(contentPart);
+    if (text) {
+      return text;
+    }
+
+    if (contentPart.data instanceof Uint8Array) {
+      const mimeType =
+        typeof contentPart.mimeType === "string" ? contentPart.mimeType : "application/octet-stream";
+      if (mimeType === "application/json" || mimeType.endsWith("+json")) {
+        return Buffer.from(contentPart.data).toString("utf8");
+      }
+      if (mimeType.startsWith("text/")) {
+        return Buffer.from(contentPart.data).toString("utf8");
+      }
+      return `data:${mimeType};base64,${toBase64(contentPart.data)}`;
+    }
+
+    return "";
+  });
+
+  return values.filter(Boolean).join("\n");
+}
+
 export function toNanoGptMessages(messages: readonly VscodeLikeMessage[]): NanoGptChatMessage[] {
   return messages
-    .map((message) => {
+    .flatMap((message) => {
+      const toolResultMessages: NanoGptChatMessage[] = [];
+      const toolCalls: NanoGptToolCall[] = [];
       const contentParts: Array<NanoGptTextContentPart | NanoGptImageUrlContentPart> = [];
 
       for (const part of message.content) {
+        const toolResultContent = toToolResultContent(part);
+        if (toolResultContent !== null && typeof part.callId === "string") {
+          toolResultMessages.push({
+            role: "tool",
+            tool_call_id: part.callId,
+            content: toolResultContent,
+          });
+          continue;
+        }
+
+        const toolCall = toToolCall(part);
+        if (toolCall) {
+          toolCalls.push(toolCall);
+          continue;
+        }
+
         const text = getTextPartValue(part);
         if (text) {
           contentParts.push({ type: "text", text });
@@ -153,6 +249,10 @@ export function toNanoGptMessages(messages: readonly VscodeLikeMessage[]): NanoG
         }
       }
 
+      if (toolResultMessages.length > 0) {
+        return toolResultMessages;
+      }
+
       const hasImage = contentParts.some((part) => part.type === "image_url");
       const content = hasImage
         ? contentParts
@@ -161,14 +261,47 @@ export function toNanoGptMessages(messages: readonly VscodeLikeMessage[]): NanoG
             .map((part) => part.text)
             .join("");
 
-      return {
+      const nanoMessage: NanoGptChatMessage = {
         role: resolveRole(message.role),
         content,
       };
+
+      if (toolCalls.length > 0) {
+        nanoMessage.tool_calls = toolCalls;
+      }
+
+      return [nanoMessage];
     })
-    .filter((message) =>
-      typeof message.content === "string" ? message.content.trim().length > 0 : message.content.length > 0,
-    );
+    .filter((message) => {
+      if (message.tool_calls && message.tool_calls.length > 0) {
+        return true;
+      }
+      if (message.role === "tool") {
+        return typeof message.content === "string";
+      }
+      if (typeof message.content === "string") {
+        return message.content.trim().length > 0;
+      }
+      return Array.isArray(message.content) && message.content.length > 0;
+    });
+}
+
+function toNanoGptTools(tools: readonly VscodeLikeTool[] | undefined): unknown[] | undefined {
+  if (!tools || tools.length === 0) {
+    return undefined;
+  }
+
+  return tools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema ?? {
+        type: "object",
+        properties: {},
+      },
+    },
+  }));
 }
 
 export function buildNanoGptChatCompletionRequest(params: {
@@ -178,6 +311,8 @@ export function buildNanoGptChatCompletionRequest(params: {
   routingMode: NanoGptRoutingMode;
   provider?: string;
   maxTokens?: number;
+  tools?: readonly VscodeLikeTool[];
+  toolMode?: "auto" | "required";
 }): NanoGptRequest {
   const baseUrl =
     params.routingMode === "subscription" ? NANOGPT_SUBSCRIPTION_BASE_URL : NANOGPT_BASE_URL;
@@ -190,6 +325,8 @@ export function buildNanoGptChatCompletionRequest(params: {
     headers["X-Provider"] = params.provider.trim();
   }
 
+  const tools = toNanoGptTools(params.tools);
+
   return {
     url: `${baseUrl}/chat/completions`,
     headers,
@@ -198,38 +335,137 @@ export function buildNanoGptChatCompletionRequest(params: {
       messages: params.messages,
       stream: true,
       ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
+      ...(tools ? { tools } : {}),
+      ...(tools && params.toolMode === "required" ? { tool_choice: "required" } : {}),
     }),
   };
 }
 
-export function collectSseTextDeltas(lines: readonly string[]): string[] {
-  const deltas: string[] = [];
+type ParsedSseChunk = {
+  choices?: Array<{
+    delta?: {
+      content?: unknown;
+      tool_calls?: Array<{
+        index?: unknown;
+        id?: unknown;
+        type?: unknown;
+        function?: {
+          name?: unknown;
+          arguments?: unknown;
+        };
+      }>;
+    };
+    finish_reason?: unknown;
+  }>;
+};
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("data:")) {
-      continue;
-    }
+type PendingToolCall = {
+  id: string;
+  name: string;
+  arguments: string;
+};
 
-    const payload = trimmed.slice("data:".length).trim();
-    if (!payload || payload === "[DONE]") {
-      continue;
-    }
+export class NanoGptSseParser {
+  private readonly toolCalls = new Map<number, PendingToolCall>();
+  private emittedToolCalls = false;
 
-    try {
-      const parsed = JSON.parse(payload) as {
-        choices?: Array<{ delta?: { content?: unknown } }>;
-      };
-      const content = parsed.choices?.[0]?.delta?.content;
-      if (typeof content === "string" && content.length > 0) {
-        deltas.push(content);
+  acceptLines(lines: readonly string[]): NanoGptResponsePart[] {
+    const parts: NanoGptResponsePart[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) {
+        continue;
       }
-    } catch {
-      continue;
+
+      const payload = trimmed.slice("data:".length).trim();
+      if (!payload) {
+        continue;
+      }
+
+      if (payload === "[DONE]") {
+        parts.push(...this.flushToolCalls());
+        continue;
+      }
+
+      try {
+        const parsed = JSON.parse(payload) as ParsedSseChunk;
+        for (const choice of parsed.choices ?? []) {
+          const content = choice.delta?.content;
+          if (typeof content === "string" && content.length > 0) {
+            parts.push({ type: "text", text: content });
+          }
+
+          for (const toolCall of choice.delta?.tool_calls ?? []) {
+            const index = isPositiveNumber(toolCall.index) ? toolCall.index : 0;
+            const pending = this.toolCalls.get(index) ?? { id: "", name: "", arguments: "" };
+            if (typeof toolCall.id === "string") {
+              pending.id = toolCall.id;
+            }
+            if (typeof toolCall.function?.name === "string") {
+              pending.name += toolCall.function.name;
+            }
+            if (typeof toolCall.function?.arguments === "string") {
+              pending.arguments += toolCall.function.arguments;
+            }
+            this.toolCalls.set(index, pending);
+          }
+
+          if (choice.finish_reason === "tool_calls") {
+            parts.push(...this.flushToolCalls());
+          }
+        }
+      } catch {
+        continue;
+      }
     }
+
+    return parts;
   }
 
-  return deltas;
+  private flushToolCalls(): NanoGptResponsePart[] {
+    if (this.emittedToolCalls || this.toolCalls.size === 0) {
+      return [];
+    }
+
+    this.emittedToolCalls = true;
+    return [...this.toolCalls.entries()]
+      .sort(([left], [right]) => left - right)
+      .flatMap(([, toolCall]) => {
+        if (!toolCall.id || !toolCall.name) {
+          return [];
+        }
+
+        try {
+          const input = JSON.parse(toolCall.arguments || "{}") as unknown;
+          return [
+            {
+              type: "tool_call" as const,
+              callId: toolCall.id,
+              name: toolCall.name,
+              input: isObject(input) ? input : {},
+            },
+          ];
+        } catch {
+          return [
+            {
+              type: "tool_call" as const,
+              callId: toolCall.id,
+              name: toolCall.name,
+              input: {},
+            },
+          ];
+        }
+      });
+  }
+}
+
+export function collectSseResponseParts(lines: readonly string[]): NanoGptResponsePart[] {
+  return new NanoGptSseParser().acceptLines(lines);
+}
+
+export function collectSseTextDeltas(lines: readonly string[]): string[] {
+  return collectSseResponseParts(lines).flatMap((part) => (part.type === "text" ? [part.text] : []));
 }
 
 export function mapNanoGptModelsToVscode(

@@ -25,9 +25,10 @@ Then launch the extension from VS Code's extension host or package it:
 npm run package
 ```
 
-Inside VS Code, run `NanoGPT: Manage API Key` and paste your NanoGPT API key.
-The key is stored in VS Code secret storage. The `nanogpt.apiKey` setting also
-works, but secret storage is safer.
+Inside VS Code, use Chat: Manage Language Models and configure the NanoGPT
+provider. VS Code stores the provider API key as a secret. The
+`NanoGPT: Manage API Key` command and `nanogpt.apiKey` setting also work as
+fallbacks, but the provider configuration flow is preferred.
 
 ## Configuration
 
@@ -39,11 +40,12 @@ works, but secret storage is safer.
 
 ## Current Scope
 
-This first implementation supports text chat completions over NanoGPT's
-OpenAI-compatible streaming API, model discovery, and approximate token
-counting. Tool calls and image input are surfaced in discovered metadata when
-NanoGPT reports support, but the request bridge currently streams text deltas
-only.
+This implementation supports text chat completions, image input for
+vision-capable models, detailed NanoGPT model discovery, approximate token
+counting, and VS Code tool calling for NanoGPT models that report tool-call
+support. Tool definitions are sent to NanoGPT in OpenAI-compatible `tools`
+format, prior tool calls/results are preserved in chat history, and streamed
+tool-call deltas are surfaced as `LanguageModelToolCallPart`.
 
 ## Development
 

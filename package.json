@@ -3,7 +3,7 @@
   "displayName": "NanoGPT Provider for VS Code",
   "description": "Bring NanoGPT models to VS Code and Copilot Chat as a language model provider.",
   "version": "0.0.1",
-  "publisher": "openclaw",
+  "publisher": "deadronos",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -22,7 +22,33 @@
       {
         "vendor": "nanogpt",
         "displayName": "NanoGPT",
-        "managementCommand": "nanogpt.manage"
+        "configuration": {
+          "type": "object",
+          "required": [
+            "apiKey"
+          ],
+          "properties": {
+            "apiKey": {
+              "type": "string",
+              "secret": true,
+              "markdownDescription": "NanoGPT API key."
+            },
+            "routingMode": {
+              "type": "string",
+              "enum": [
+                "subscription",
+                "paygo"
+              ],
+              "default": "subscription",
+              "description": "NanoGPT routing surface for chat completions."
+            },
+            "provider": {
+              "type": "string",
+              "default": "",
+              "description": "Optional upstream provider id sent as X-Provider when routingMode is paygo."
+            }
+          }
+        }
       }
     ],
     "commands": [
@@ -78,7 +104,7 @@
   "devDependencies": {
     "@types/node": "^24.6.0",
     "@types/vscode": "^1.105.0",
-    "@vscode/vsce": "^3.7.0",
+    "@vscode/vsce": "^3.9.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.4"
   }

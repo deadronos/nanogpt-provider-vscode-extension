@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { NanoGptClient } from "../src/client.js";
 import {
   buildNanoGptChatCompletionRequest,
+  collectSseResponseParts,
   collectSseTextDeltas,
   estimateTokenCount,
   mapNanoGptModelsToVscode,
@@ -63,6 +64,52 @@ describe("NanoGPT VS Code provider core", () => {
     ]);
   });
 
+  test("maps VS Code tool call and tool result parts to OpenAI-compatible history", () => {
+    const messages = toNanoGptMessages([
+      {
+        role: "assistant",
+        content: [
+          {
+            callId: "call_1",
+            name: "read_file",
+            input: { path: "README.md" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            callId: "call_1",
+            content: [{ kind: "text", value: "file contents" }],
+          },
+        ],
+      },
+    ]);
+
+    expect(messages).toEqual([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: {
+              name: "read_file",
+              arguments: "{\"path\":\"README.md\"}",
+            },
+          },
+        ],
+      },
+      {
+        role: "tool",
+        tool_call_id: "call_1",
+        content: "file contents",
+      },
+    ]);
+  });
+
   test("builds subscription chat completion requests without paygo provider header", () => {
     const request = buildNanoGptChatCompletionRequest({
       apiKey: "test-key",
@@ -96,6 +143,49 @@ describe("NanoGPT VS Code provider core", () => {
     expect(request.headers["X-Provider"]).toBe("openrouter");
   });
 
+  test("builds chat completion requests with VS Code tools and required tool mode", () => {
+    const request = buildNanoGptChatCompletionRequest({
+      apiKey: "test-key",
+      modelId: "moonshotai/kimi-k2.5",
+      messages: [{ role: "user", content: "Read the file" }],
+      routingMode: "paygo",
+      tools: [
+        {
+          name: "read_file",
+          description: "Read a workspace file",
+          inputSchema: {
+            type: "object",
+            properties: {
+              path: { type: "string" },
+            },
+            required: ["path"],
+          },
+        },
+      ],
+      toolMode: "required",
+    });
+
+    expect(JSON.parse(request.body)).toMatchObject({
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "read_file",
+            description: "Read a workspace file",
+            parameters: {
+              type: "object",
+              properties: {
+                path: { type: "string" },
+              },
+              required: ["path"],
+            },
+          },
+        },
+      ],
+      tool_choice: "required",
+    });
+  });
+
   test("extracts streamed text deltas from OpenAI-compatible SSE chunks", () => {
     const text = collectSseTextDeltas([
       'data: {"choices":[{"delta":{"content":"Hel"}}]}',
@@ -104,6 +194,23 @@ describe("NanoGPT VS Code provider core", () => {
     ]);
 
     expect(text).toEqual(["Hel", "lo"]);
+  });
+
+  test("extracts streamed tool-call deltas from OpenAI-compatible SSE chunks", () => {
+    const parts = collectSseResponseParts([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"pa"}}]}}]}',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\\":\\"README.md\\"}"}}]}}]}',
+      'data: {"choices":[{"finish_reason":"tool_calls","delta":{}}]}',
+    ]);
+
+    expect(parts).toEqual([
+      {
+        type: "tool_call",
+        callId: "call_1",
+        name: "read_file",
+        input: { path: "README.md" },
+      },
+    ]);
   });
 
   test("maps discovered NanoGPT models into VS Code model metadata", () => {
@@ -133,6 +240,23 @@ describe("NanoGPT VS Code provider core", () => {
         },
       },
     ]);
+  });
+
+  test("advertises VS Code tool calling when NanoGPT reports tool-call support", () => {
+    const models = mapNanoGptModelsToVscode([
+      {
+        id: "moonshotai/kimi-k2.5:thinking",
+        name: "Kimi K2.5 Thinking",
+        context_length: 262144,
+        max_output_tokens: 8192,
+        capabilities: { vision: true, tool_calling: true },
+      },
+    ]);
+
+    expect(models[0]?.capabilities).toEqual({
+      imageInput: true,
+      toolCalling: true,
+    });
   });
 
   test("estimates token counts consistently for text and message payloads", () => {
