@@ -46,6 +46,27 @@
               "type": "string",
               "default": "",
               "description": "Optional upstream provider id sent as X-Provider when routingMode is paygo."
+            },
+            "reasoningEffort": {
+              "type": "string",
+              "enum": [
+                "auto",
+                "low",
+                "medium",
+                "high"
+              ],
+              "default": "auto",
+              "description": "Optional reasoning effort sent to reasoning-capable models."
+            },
+            "reasoningOutput": {
+              "type": "string",
+              "enum": [
+                "native",
+                "hidden",
+                "visible"
+              ],
+              "default": "native",
+              "description": "Controls how streamed reasoning is surfaced. Native uses VS Code's thinking part when available; visible falls back to normal text."
             }
           }
         }
@@ -90,6 +111,27 @@
           },
           "default": [],
           "description": "Optional allowlist of NanoGPT model ids. Leave empty to discover models from NanoGPT."
+        },
+        "nanogpt.reasoningEffort": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "auto",
+          "description": "Optional reasoning effort sent to reasoning-capable models."
+        },
+        "nanogpt.reasoningOutput": {
+          "type": "string",
+          "enum": [
+            "native",
+            "hidden",
+            "visible"
+          ],
+          "default": "native",
+          "description": "Controls how streamed reasoning is surfaced. Native uses VS Code's thinking part when available; visible falls back to normal text."
         }
       }
     }

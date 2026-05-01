@@ -37,15 +37,23 @@ fallbacks, but the provider configuration flow is preferred.
   pay-as-you-go mode.
 - `nanogpt.models`: optional model id allowlist. Leave empty to discover
   models from NanoGPT.
+- `nanogpt.reasoningEffort`: optional reasoning effort for reasoning-capable
+  models: `auto`, `low`, `medium`, or `high`.
+- `nanogpt.reasoningOutput`: controls streamed reasoning output. `native` uses
+  VS Code's thinking part when available, `hidden` asks NanoGPT to exclude
+  reasoning, and `visible` falls back to normal text if native thinking parts
+  are unavailable.
 
 ## Current Scope
 
 This implementation supports text chat completions, image input for
 vision-capable models, detailed NanoGPT model discovery, approximate token
-counting, and VS Code tool calling for NanoGPT models that report tool-call
-support. Tool definitions are sent to NanoGPT in OpenAI-compatible `tools`
-format, prior tool calls/results are preserved in chat history, and streamed
-tool-call deltas are surfaced as `LanguageModelToolCallPart`.
+counting, VS Code tool calling, and reasoning/thinking controls for NanoGPT
+models that report support. Tool definitions are sent to NanoGPT in
+OpenAI-compatible `tools` format, prior tool calls/results are preserved in chat
+history, streamed tool-call deltas are surfaced as `LanguageModelToolCallPart`,
+and common streamed reasoning fields are surfaced through VS Code thinking parts
+when available.
 
 ## Development
 

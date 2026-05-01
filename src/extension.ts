@@ -1,8 +1,11 @@
 import * as vscode from "vscode";
 import { NanoGptClient } from "./client.js";
 import {
+  buildReasoningConfigurationSchema,
   estimateTokenCount,
   toNanoGptMessages,
+  type NanoGptReasoningEffort,
+  type NanoGptReasoningOutput,
   type NanoGptRoutingMode,
   type VscodeModelMetadata,
 } from "./nanogpt.js";
@@ -23,6 +26,8 @@ const DEFAULT_MODELS: VscodeModelMetadata[] = [
       imageInput: true,
       toolCalling: false,
     },
+    reasoning: true,
+    configurationSchema: buildReasoningConfigurationSchema(),
   },
 ];
 
@@ -55,6 +60,8 @@ type ProviderConfiguration = {
   routingMode?: unknown;
   provider?: unknown;
   models?: unknown;
+  reasoningEffort?: unknown;
+  reasoningOutput?: unknown;
 };
 
 function getConfig() {
@@ -81,6 +88,36 @@ function getModelAllowlist(providerConfiguration?: ProviderConfiguration): strin
   }
 
   return getConfig().get<string[]>("models", []);
+}
+
+function getReasoningEffort(
+  providerConfiguration?: ProviderConfiguration,
+  modelOptions?: { readonly [name: string]: unknown },
+): NanoGptReasoningEffort | undefined {
+  const value =
+    typeof modelOptions?.reasoningEffort === "string"
+      ? modelOptions.reasoningEffort
+      : typeof providerConfiguration?.reasoningEffort === "string"
+        ? providerConfiguration.reasoningEffort
+        : getConfig().get<string>("reasoningEffort", "auto");
+
+  return value === "low" || value === "medium" || value === "high" || value === "auto"
+    ? value
+    : undefined;
+}
+
+function getReasoningOutput(
+  providerConfiguration?: ProviderConfiguration,
+  modelOptions?: { readonly [name: string]: unknown },
+): NanoGptReasoningOutput {
+  const value =
+    typeof modelOptions?.reasoningOutput === "string"
+      ? modelOptions.reasoningOutput
+      : typeof providerConfiguration?.reasoningOutput === "string"
+        ? providerConfiguration.reasoningOutput
+        : getConfig().get<string>("reasoningOutput", "native");
+
+  return value === "hidden" || value === "visible" || value === "native" ? value : "native";
 }
 
 async function resolveApiKey(
@@ -148,6 +185,18 @@ function toToolMode(
     return "auto";
   }
   return undefined;
+}
+
+function createThinkingPart(text: string): vscode.LanguageModelResponsePart | undefined {
+  const thinkingCtor = (vscode as unknown as {
+    LanguageModelThinkingPart?: new (
+      value: string | string[],
+      id?: string,
+      metadata?: { readonly [key: string]: unknown },
+    ) => vscode.LanguageModelResponsePart;
+  }).LanguageModelThinkingPart;
+
+  return thinkingCtor ? new thinkingCtor(text) : undefined;
 }
 
 class NanoGptLanguageModelProvider implements ChatProviderApi {
@@ -218,6 +267,8 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
       throw new vscode.LanguageModelError("NanoGPT API key is not configured");
     }
 
+    const reasoningOutput = getReasoningOutput(options.configuration, options.modelOptions);
+
     await this.client.streamChatCompletions({
       apiKey,
       modelId: model.id,
@@ -227,8 +278,18 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
       maxTokens: options.modelOptions?.maxTokens,
       tools: options.tools,
       toolMode: toToolMode(options.toolMode),
+      reasoningEffort: getReasoningEffort(options.configuration, options.modelOptions),
+      reasoningOutput,
       signal: createAbortSignal(token),
       onText: (text) => progress.report(new vscode.LanguageModelTextPart(text)),
+      onReasoning: (text) => {
+        const thinkingPart = createThinkingPart(text);
+        if (thinkingPart) {
+          progress.report(thinkingPart);
+        } else if (reasoningOutput === "visible") {
+          progress.report(new vscode.LanguageModelTextPart(text));
+        }
+      },
       onToolCall: (toolCall) =>
         progress.report(
           new vscode.LanguageModelToolCallPart(toolCall.callId, toolCall.name, toolCall.input),

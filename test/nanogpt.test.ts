@@ -186,6 +186,42 @@ describe("NanoGPT VS Code provider core", () => {
     });
   });
 
+  test("builds chat completion requests with reasoning controls", () => {
+    const request = buildNanoGptChatCompletionRequest({
+      apiKey: "test-key",
+      modelId: "moonshotai/kimi-k2.5:thinking",
+      messages: [{ role: "user", content: "Think carefully" }],
+      routingMode: "paygo",
+      reasoningEffort: "high",
+      reasoningOutput: "native",
+    });
+
+    expect(JSON.parse(request.body)).toMatchObject({
+      reasoning_effort: "high",
+      reasoning: {
+        exclude: false,
+      },
+    });
+  });
+
+  test("can request reasoning exclusion when reasoning output is hidden", () => {
+    const request = buildNanoGptChatCompletionRequest({
+      apiKey: "test-key",
+      modelId: "moonshotai/kimi-k2.5:thinking",
+      messages: [{ role: "user", content: "Think privately" }],
+      routingMode: "paygo",
+      reasoningEffort: "medium",
+      reasoningOutput: "hidden",
+    });
+
+    expect(JSON.parse(request.body)).toMatchObject({
+      reasoning_effort: "medium",
+      reasoning: {
+        exclude: true,
+      },
+    });
+  });
+
   test("extracts streamed text deltas from OpenAI-compatible SSE chunks", () => {
     const text = collectSseTextDeltas([
       'data: {"choices":[{"delta":{"content":"Hel"}}]}',
@@ -213,6 +249,21 @@ describe("NanoGPT VS Code provider core", () => {
     ]);
   });
 
+  test("extracts streamed reasoning deltas from common OpenAI-compatible fields", () => {
+    const parts = collectSseResponseParts([
+      'data: {"choices":[{"delta":{"reasoning":"First "}}]}',
+      'data: {"choices":[{"delta":{"reasoning_content":"inspect."}}]}',
+      'data: {"choices":[{"delta":{"thinking":" Then answer."}}]}',
+    ]);
+
+    expect(parts).toEqual([
+      { type: "reasoning", text: "First " },
+      { type: "reasoning", text: "inspect." },
+      { type: "reasoning", text: " Then answer." },
+    ]);
+    expect(collectSseTextDeltas(parts.map((part) => `data: ${JSON.stringify({ choices: [{ delta: part.type === "reasoning" ? { reasoning: part.text } : { content: part.text } }] }) }`))).toEqual([]);
+  });
+
   test("maps discovered NanoGPT models into VS Code model metadata", () => {
     const models = mapNanoGptModelsToVscode([
       {
@@ -238,6 +289,7 @@ describe("NanoGPT VS Code provider core", () => {
           imageInput: true,
           toolCalling: true,
         },
+        reasoning: false,
       },
     ]);
   });
@@ -250,12 +302,21 @@ describe("NanoGPT VS Code provider core", () => {
         context_length: 262144,
         max_output_tokens: 8192,
         capabilities: { vision: true, tool_calling: true },
+        reasoning: true,
       },
     ]);
 
     expect(models[0]?.capabilities).toEqual({
       imageInput: true,
       toolCalling: true,
+    });
+    expect(models[0]?.reasoning).toBe(true);
+    expect(models[0]?.configurationSchema).toMatchObject({
+      properties: {
+        reasoningEffort: {
+          enum: ["auto", "low", "medium", "high"],
+        },
+      },
     });
   });
 
@@ -284,6 +345,7 @@ describe("NanoGPT VS Code provider core", () => {
               capabilities: {
                 vision: true,
                 tool_calling: true,
+                reasoning: true,
               },
             },
           ],
@@ -307,6 +369,7 @@ describe("NanoGPT VS Code provider core", () => {
         imageInput: true,
         toolCalling: true,
       },
+      reasoning: true,
     });
   });
 });

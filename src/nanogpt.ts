@@ -58,6 +58,7 @@ export type VscodeLikeMessage = {
 export type NanoGptModelCapabilities = {
   vision?: boolean;
   imageInput?: boolean;
+  reasoning?: boolean;
   tool_calling?: boolean;
   toolCalling?: boolean;
 };
@@ -72,9 +73,13 @@ export type NanoGptModelEntry = {
   max_output_tokens?: unknown;
   maxTokens?: unknown;
   capabilities?: NanoGptModelCapabilities;
+  reasoning?: unknown;
   vision?: unknown;
   tool_calling?: unknown;
 };
+
+export type NanoGptReasoningEffort = "auto" | "low" | "medium" | "high";
+export type NanoGptReasoningOutput = "hidden" | "native" | "visible";
 
 export type VscodeModelMetadata = {
   id: string;
@@ -89,6 +94,11 @@ export type VscodeModelMetadata = {
     imageInput: boolean;
     toolCalling: boolean;
   };
+  reasoning: boolean;
+  configurationSchema?: {
+    type: "object";
+    properties: Record<string, unknown>;
+  };
 };
 
 export type VscodeLikeTool = {
@@ -99,6 +109,7 @@ export type VscodeLikeTool = {
 
 export type NanoGptResponsePart =
   | { type: "text"; text: string }
+  | { type: "reasoning"; text: string }
   | { type: "tool_call"; callId: string; name: string; input: object };
 
 export type NanoGptRequest = {
@@ -313,6 +324,8 @@ export function buildNanoGptChatCompletionRequest(params: {
   maxTokens?: number;
   tools?: readonly VscodeLikeTool[];
   toolMode?: "auto" | "required";
+  reasoningEffort?: NanoGptReasoningEffort;
+  reasoningOutput?: NanoGptReasoningOutput;
 }): NanoGptRequest {
   const baseUrl =
     params.routingMode === "subscription" ? NANOGPT_SUBSCRIPTION_BASE_URL : NANOGPT_BASE_URL;
@@ -337,6 +350,12 @@ export function buildNanoGptChatCompletionRequest(params: {
       ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
       ...(tools ? { tools } : {}),
       ...(tools && params.toolMode === "required" ? { tool_choice: "required" } : {}),
+      ...(params.reasoningEffort && params.reasoningEffort !== "auto"
+        ? { reasoning_effort: params.reasoningEffort }
+        : {}),
+      ...(params.reasoningOutput
+        ? { reasoning: { exclude: params.reasoningOutput === "hidden" } }
+        : {}),
     }),
   };
 }
@@ -345,6 +364,9 @@ type ParsedSseChunk = {
   choices?: Array<{
     delta?: {
       content?: unknown;
+      reasoning?: unknown;
+      reasoning_content?: unknown;
+      thinking?: unknown;
       tool_calls?: Array<{
         index?: unknown;
         id?: unknown;
@@ -394,6 +416,16 @@ export class NanoGptSseParser {
           const content = choice.delta?.content;
           if (typeof content === "string" && content.length > 0) {
             parts.push({ type: "text", text: content });
+          }
+
+          for (const reasoning of [
+            choice.delta?.reasoning,
+            choice.delta?.reasoning_content,
+            choice.delta?.thinking,
+          ]) {
+            if (typeof reasoning === "string" && reasoning.length > 0) {
+              parts.push({ type: "reasoning", text: reasoning });
+            }
           }
 
           for (const toolCall of choice.delta?.tool_calls ?? []) {
@@ -468,6 +500,29 @@ export function collectSseTextDeltas(lines: readonly string[]): string[] {
   return collectSseResponseParts(lines).flatMap((part) => (part.type === "text" ? [part.text] : []));
 }
 
+export function buildReasoningConfigurationSchema(): VscodeModelMetadata["configurationSchema"] {
+  return {
+    type: "object",
+    properties: {
+      reasoningEffort: {
+        type: "string",
+        enum: ["auto", "low", "medium", "high"],
+        enumItemLabels: ["Auto", "Low", "Medium", "High"],
+        default: "auto",
+        group: "navigation",
+        description: "Controls how much reasoning the model applies.",
+      },
+      reasoningOutput: {
+        type: "string",
+        enum: ["native", "hidden", "visible"],
+        enumItemLabels: ["Native", "Hidden", "Visible fallback"],
+        default: "native",
+        description: "Controls how streamed reasoning is surfaced by VS Code.",
+      },
+    },
+  };
+}
+
 export function mapNanoGptModelsToVscode(
   entries: readonly NanoGptModelEntry[],
   allowlist: readonly string[] = [],
@@ -481,6 +536,7 @@ export function mapNanoGptModelsToVscode(
     }
 
     const capabilities = entry.capabilities ?? {};
+    const reasoning = Boolean(capabilities.reasoning ?? entry.reasoning);
     const maxOutputTokens = isPositiveNumber(entry.max_output_tokens)
       ? entry.max_output_tokens
       : isPositiveNumber(entry.maxTokens)
@@ -508,6 +564,8 @@ export function mapNanoGptModelsToVscode(
             capabilities.toolCalling ?? capabilities.tool_calling ?? entry.tool_calling,
           ),
         },
+        reasoning,
+        ...(reasoning ? { configurationSchema: buildReasoningConfigurationSchema() } : {}),
       },
     ];
   });

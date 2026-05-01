@@ -3,6 +3,8 @@ import {
   NanoGptSseParser,
   mapNanoGptModelsToVscode,
   type NanoGptChatMessage,
+  type NanoGptReasoningEffort,
+  type NanoGptReasoningOutput,
   type NanoGptResponsePart,
   type NanoGptRoutingMode,
   type VscodeLikeTool,
@@ -62,8 +64,11 @@ export class NanoGptClient {
     maxTokens?: number;
     tools?: readonly VscodeLikeTool[];
     toolMode?: "auto" | "required";
+    reasoningEffort?: NanoGptReasoningEffort;
+    reasoningOutput?: NanoGptReasoningOutput;
     signal?: AbortSignal;
     onText: (text: string) => void;
+    onReasoning?: (text: string) => void;
     onToolCall?: (toolCall: Extract<NanoGptResponsePart, { type: "tool_call" }>) => void;
   }): Promise<void> {
     const request = buildNanoGptChatCompletionRequest(params);
@@ -108,12 +113,15 @@ export class NanoGptClient {
     parts: readonly NanoGptResponsePart[],
     params: {
       onText: (text: string) => void;
+      onReasoning?: (text: string) => void;
       onToolCall?: (toolCall: Extract<NanoGptResponsePart, { type: "tool_call" }>) => void;
     },
   ): void {
     for (const part of parts) {
       if (part.type === "text") {
         params.onText(part.text);
+      } else if (part.type === "reasoning") {
+        params.onReasoning?.(part.text);
       } else {
         params.onToolCall?.(part);
       }
