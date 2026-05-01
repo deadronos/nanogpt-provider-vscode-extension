@@ -1,0 +1,9 @@
+src/**
+test/**
+coverage/**
+node_modules/**
+dist/src/**
+dist/test/**
+*.vsix
+vitest.config.ts
+tsconfig.json

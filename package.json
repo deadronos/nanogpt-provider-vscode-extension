@@ -1,0 +1,85 @@
+{
+  "name": "nanogpt-provider-vscode-extension",
+  "displayName": "NanoGPT Provider for VS Code",
+  "description": "Bring NanoGPT models to VS Code and Copilot Chat as a language model provider.",
+  "version": "0.0.1",
+  "publisher": "openclaw",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "AI"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:nanogpt.manage"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languageModelChatProviders": [
+      {
+        "vendor": "nanogpt",
+        "displayName": "NanoGPT",
+        "managementCommand": "nanogpt.manage"
+      }
+    ],
+    "commands": [
+      {
+        "command": "nanogpt.manage",
+        "title": "NanoGPT: Manage API Key"
+      },
+      {
+        "command": "nanogpt.refreshModels",
+        "title": "NanoGPT: Refresh Models"
+      }
+    ],
+    "configuration": {
+      "title": "NanoGPT",
+      "properties": {
+        "nanogpt.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "NanoGPT API key. Prefer the `NanoGPT: Manage API Key` command because settings can be synced or committed by accident."
+        },
+        "nanogpt.routingMode": {
+          "type": "string",
+          "enum": [
+            "subscription",
+            "paygo"
+          ],
+          "default": "subscription",
+          "description": "NanoGPT routing surface for chat completions."
+        },
+        "nanogpt.provider": {
+          "type": "string",
+          "default": "",
+          "description": "Optional upstream provider id sent as X-Provider when routingMode is paygo."
+        },
+        "nanogpt.models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Optional allowlist of NanoGPT model ids. Leave empty to discover models from NanoGPT."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "compile": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "package": "vsce package --no-dependencies --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/vscode": "^1.105.0",
+    "@vscode/vsce": "^3.7.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.4"
+  }
+}
