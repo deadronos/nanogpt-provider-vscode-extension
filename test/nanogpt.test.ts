@@ -122,6 +122,7 @@ describe("NanoGPT VS Code provider core", () => {
     expect(request.headers).toEqual({
       Authorization: "Bearer test-key",
       "Content-Type": "application/json",
+      Accept: "text/event-stream",
     });
     expect(JSON.parse(request.body)).toMatchObject({
       model: "gpt-5.4-mini",
@@ -290,6 +291,9 @@ describe("NanoGPT VS Code provider core", () => {
           toolCalling: true,
         },
         reasoning: false,
+        internal: {
+          parallelToolCalls: false,
+        },
         configurationSchema: expect.objectContaining({
           properties: expect.objectContaining({
             apiKey: expect.objectContaining({ secret: true }),
@@ -320,7 +324,7 @@ describe("NanoGPT VS Code provider core", () => {
     expect(models[0]?.configurationSchema).toMatchObject({
       properties: {
         reasoningEffort: {
-          enum: ["auto", "low", "medium", "high"],
+          enum: ["auto", "none", "minimal", "low", "medium", "high", "xhigh"],
         },
       },
     });

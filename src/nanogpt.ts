@@ -61,6 +61,7 @@ export type NanoGptModelCapabilities = {
   reasoning?: boolean;
   tool_calling?: boolean;
   toolCalling?: boolean;
+  parallel_tool_calls?: boolean;
 };
 
 export type NanoGptModelEntry = {
@@ -78,7 +79,7 @@ export type NanoGptModelEntry = {
   tool_calling?: unknown;
 };
 
-export type NanoGptReasoningEffort = "auto" | "low" | "medium" | "high";
+export type NanoGptReasoningEffort = "none" | "minimal" | "auto" | "low" | "medium" | "high" | "xhigh";
 export type NanoGptReasoningOutput = "hidden" | "native" | "visible";
 
 export type VscodeModelMetadata = {
@@ -95,6 +96,9 @@ export type VscodeModelMetadata = {
     toolCalling: boolean;
   };
   reasoning: boolean;
+  internal?: {
+    parallelToolCalls?: boolean;
+  };
   configurationSchema?: {
     type: "object";
     properties: Record<string, unknown>;
@@ -326,12 +330,14 @@ export function buildNanoGptChatCompletionRequest(params: {
   toolMode?: "auto" | "required";
   reasoningEffort?: NanoGptReasoningEffort;
   reasoningOutput?: NanoGptReasoningOutput;
+  parallelToolCalls?: boolean;
 }): NanoGptRequest {
   const baseUrl =
     params.routingMode === "subscription" ? NANOGPT_SUBSCRIPTION_BASE_URL : NANOGPT_BASE_URL;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${params.apiKey}`,
     "Content-Type": "application/json",
+    Accept: "text/event-stream",
   };
 
   if (params.routingMode === "paygo" && params.provider?.trim()) {
@@ -350,6 +356,7 @@ export function buildNanoGptChatCompletionRequest(params: {
       ...(params.maxTokens ? { max_tokens: params.maxTokens } : {}),
       ...(tools ? { tools } : {}),
       ...(tools && params.toolMode === "required" ? { tool_choice: "required" } : {}),
+      ...(params.parallelToolCalls ? { parallel_tool_calls: true } : {}),
       ...(params.reasoningEffort && params.reasoningEffort !== "auto"
         ? { reasoning_effort: params.reasoningEffort }
         : {}),
@@ -523,8 +530,8 @@ export function buildReasoningConfigurationSchema(): VscodeModelMetadata["config
       },
       reasoningEffort: {
         type: "string",
-        enum: ["auto", "low", "medium", "high"],
-        enumItemLabels: ["Auto", "Low", "Medium", "High"],
+        enum: ["auto", "none", "minimal", "low", "medium", "high", "xhigh"],
+        enumItemLabels: ["Auto", "None", "Minimal", "Low", "Medium", "High", "Extra High"],
         default: "auto",
         group: "navigation",
         description: "Controls how much reasoning the model applies.",
@@ -582,6 +589,9 @@ export function mapNanoGptModelsToVscode(
           ),
         },
         reasoning,
+        internal: {
+          parallelToolCalls: Boolean(capabilities.parallel_tool_calls),
+        },
         configurationSchema: buildReasoningConfigurationSchema(),
       },
     ];

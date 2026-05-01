@@ -66,12 +66,25 @@ export class NanoGptClient {
     toolMode?: "auto" | "required";
     reasoningEffort?: NanoGptReasoningEffort;
     reasoningOutput?: NanoGptReasoningOutput;
+    parallelToolCalls?: boolean;
     signal?: AbortSignal;
     onText: (text: string) => void;
     onReasoning?: (text: string) => void;
     onToolCall?: (toolCall: Extract<NanoGptResponsePart, { type: "tool_call" }>) => void;
   }): Promise<void> {
-    const request = buildNanoGptChatCompletionRequest(params);
+    const request = buildNanoGptChatCompletionRequest({
+      apiKey: params.apiKey,
+      modelId: params.modelId,
+      messages: params.messages,
+      routingMode: params.routingMode,
+      provider: params.provider,
+      maxTokens: params.maxTokens,
+      tools: params.tools,
+      toolMode: params.toolMode,
+      reasoningEffort: params.reasoningEffort,
+      reasoningOutput: params.reasoningOutput,
+      parallelToolCalls: params.parallelToolCalls,
+    });
     const response = await this.fetchImpl(request.url, {
       method: "POST",
       headers: request.headers,
@@ -80,7 +93,16 @@ export class NanoGptClient {
     });
 
     if (!response.ok) {
-      throw new Error(`NanoGPT chat request failed with HTTP ${response.status}`);
+      let message = `NanoGPT chat request failed with HTTP ${response.status}`;
+      try {
+        const body = await response.json() as { error?: { message?: string; code?: string; type?: string } };
+        if (body?.error?.message) {
+          message = `[NanoGPT] ${body.error.message}${body.error.type ? ` (${body.error.type})` : ""}${body.error.code ? ` [${body.error.code}]` : ""}`;
+        }
+      } catch {
+        // Use the default message if the body is not JSON.
+      }
+      throw new Error(message);
     }
 
     if (!response.body) {

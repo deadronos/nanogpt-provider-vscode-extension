@@ -101,8 +101,21 @@ function getReasoningEffort(
         ? providerConfiguration.reasoningEffort
         : getConfig().get<string>("reasoningEffort", "auto");
 
-  return value === "low" || value === "medium" || value === "high" || value === "auto"
-    ? value
+  const validEfforts: NanoGptReasoningEffort[] = [
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+  ];
+
+  if (value === "auto") {
+    return "auto";
+  }
+
+  return validEfforts.includes(value as NanoGptReasoningEffort)
+    ? (value as NanoGptReasoningEffort)
     : undefined;
 }
 
@@ -280,6 +293,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
       toolMode: toToolMode(options.toolMode),
       reasoningEffort: getReasoningEffort(options.configuration, options.modelOptions),
       reasoningOutput,
+      parallelToolCalls: model.internal?.parallelToolCalls,
       signal: createAbortSignal(token),
       onText: (text) => progress.report(new vscode.LanguageModelTextPart(text)),
       onReasoning: (text) => {
