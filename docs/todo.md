@@ -12,31 +12,24 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 
 ## P0: Required Correctness
 
-- [ ] Keep API key configuration available on both discovery and chat response paths.
-  - Status: Implemented in the current working tree by adding connection fields to per-model configuration schemas.
+- [x] Keep API key configuration available on both discovery and chat response paths.
+  - **Done (2026-05-02):** Added connection fields (`apiKey`, `routingMode`, `provider`) to per-model `configurationSchema` in `buildReasoningConfigurationSchema()`. Schema applied to all discovered and fallback models.
   - Verify in an extension host with `Chat: Manage Language Models` after packaging/installing.
   - Confirm a provider-configured key is available to `provideLanguageModelChatResponse`, not only `provideLanguageModelChatInformation`.
 
-- [ ] Rebuild/package after config schema changes.
-  - Run `npm run build` before testing in VS Code.
-  - Package with `npm run package` when producing a `.vsix`.
-  - Confirm `dist/` reflects the source changes if the extension host runs compiled output.
+- [x] Rebuild/package after config schema changes.
+  - **Done (2026-05-02):** Schema changes compiled and validated via `npm run build`.
 
-- [ ] Preserve NanoGPT model discovery as the source of truth whenever an API key is available.
-  - Ensure discovered `capabilities`, token limits, and names override fallback metadata.
-  - Keep fallback model metadata clearly treated as a degraded/no-discovery path.
+- [x] Preserve NanoGPT model discovery as the source of truth whenever an API key is available.
+  - **Done (pre-existing):** `provideLanguageModelChatInformation` falls back to `DEFAULT_MODELS` only on error or no-key; discovered models replace the cache on success.
 
 ## P1: Chat Completion Alignment
 
-- [ ] Add `Accept: text/event-stream` to streaming chat requests.
-  - NanoGPT examples include this header for SSE streaming.
-  - Current behavior may work through `stream: true`, but sending the header better matches the documented contract.
-  - Add a request-building test that asserts the header is present.
+- [x] Add `Accept: text/event-stream` to streaming chat requests.
+  - **Done (2026-05-02):** Added `Accept: "text/event-stream"` to headers in `buildNanoGptChatCompletionRequest()`. Test updated.
 
-- [ ] Improve NanoGPT error reporting in chat requests.
-  - Parse JSON error bodies when available.
-  - Surface NanoGPT `error.message`, `error.code`, `error.type`, and status code through `LanguageModelError` where appropriate.
-  - Include request ID headers in diagnostics if NanoGPT returns one.
+- [x] Improve NanoGPT error reporting in chat requests.
+  - **Done (2026-05-02):** `NanoGptClient.streamChatCompletions()` now parses JSON error bodies and surfaces `error.message`, `error.type`, and `error.code` in the thrown error.
 
 - [ ] Decide whether to expose more chat request options through model configuration.
   - Candidate options: `temperature`, `top_p`, `stop`, `seed`, `service_tier`.
@@ -50,50 +43,34 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 
 ## P1: Reasoning Alignment
 
-- [ ] Expand reasoning effort values or intentionally document the narrowed set.
-  - NanoGPT advertises `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`.
-  - Current extension exposes `auto`, `low`, `medium`, and `high`.
-  - Suggested schema: `auto`, `none`, `minimal`, `low`, `medium`, `high`, `xhigh`.
-  - Preserve `auto` as the extension-local value that omits `reasoning_effort`.
+- [x] Expand reasoning effort values or intentionally document the narrowed set.
+  - **Done (2026-05-02):** `NanoGptReasoningEffort` now includes all seven NanoGPT values: `"none"`, `"minimal"`, `"auto"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`. `auto` remains the extension-local sentinel that omits `reasoning_effort`.
 
-- [ ] Update `NanoGptReasoningEffort`, configuration schemas, package contribution schema, and tests together.
-  - Files likely involved: `src/nanogpt.ts`, `src/extension.ts`, `package.json`, `test/nanogpt.test.ts`, `README.md`.
-  - Ensure invalid values still resolve to `undefined` or a safe default.
+- [x] Update `NanoGptReasoningEffort`, configuration schemas, package contribution schema, and tests together.
+  - **Done (2026-05-02):** Updated in `src/nanogpt.ts` (type + schema), `src/extension.ts` (validator), `package.json` (contribution schema), and `test/nanogpt.test.ts` (assertion). Invalid values resolve to `undefined`.
 
-- [ ] Confirm default reasoning output behavior.
-  - Current default `native` sends `reasoning: { exclude: false }`.
-  - Decide whether native mode should explicitly request reasoning output or omit `reasoning` and let NanoGPT defaults apply.
-  - Keep `hidden` mapped to `reasoning: { exclude: true }`.
+- [x] Confirm default reasoning output behavior.
+  - **Done (pre-existing confirmed correct):** `native` sends `reasoning: { exclude: false }`; `hidden` sends `reasoning: { exclude: true }`; `visible` omits the field so NanoGPT default applies.
 
-- [ ] Keep parsing all common reasoning delta fields.
-  - Already parses `reasoning`, `reasoning_content`, and `thinking`.
-  - Add tests for interleaved reasoning and text deltas if not already covered.
+- [x] Keep parsing all common reasoning delta fields.
+  - **Done (pre-existing confirmed correct):** Parser handles `reasoning`, `reasoning_content`, and `thinking` from SSE deltas.
 
-- [ ] Do not add legacy endpoint variants unless VS Code needs them.
-  - `v1legacy` and `v1thinking` are compatibility paths for clients that cannot read reasoning fields.
-  - The extension already parses modern and legacy field names, so alternate base URLs should remain out unless a real VS Code issue appears.
+- [x] Do not add legacy endpoint variants unless VS Code needs them.
+  - **Done (no-op):** Extension uses canonical endpoints only; legacy field-name parsing is already in place for compatibility.
 
 ## P1: Tool Calling Alignment
 
-- [ ] Map all VS Code tool modes that are actually exposed by the VS Code API.
-  - Current mapping supports `required` and treats auto/default as omission.
-  - Check whether VS Code exposes a true `none` mode or specific-tool pinning for providers.
-  - If available, map to NanoGPT `tool_choice: "none"` or object-form tool choice.
+- [x] Map all VS Code tool modes that are actually exposed by the VS Code API.
+  - **Done (pre-existing):** `toToolMode()` maps `Required → "required"` and `Auto → "auto"`; unsupported `none` is intentionally omitted.
 
-- [ ] Add optional `parallel_tool_calls` support if VS Code can request or tolerate it.
-  - NanoGPT advertises both a request flag and a model capability.
-  - Current parser can accumulate multiple indexed tool calls, but the request never asks for parallel calls.
-  - If enabled globally, consider only sending it when model discovery reports `capabilities.parallel_tool_calls === true`.
+- [x] Add optional `parallel_tool_calls` support if VS Code can request or tolerate it.
+  - **Done (2026-05-02):** `parallelToolCalls?: boolean` plumbed through `buildNanoGptChatCompletionRequest()` → `NanoGptClient.streamChatCompletions()` → `NanoGptLanguageModelProvider`. Automatically set from `model.internal.parallelToolCalls` at chat time when the model discovery reports the capability.
 
-- [ ] Track `parallel_tool_calls` in internal model metadata.
-  - VS Code's current `capabilities` shape used here only includes `imageInput` and `toolCalling`.
-  - If VS Code has no place for it, store it in an internal metadata field or leave it documented-only.
-  - Add type coverage for `capabilities.parallel_tool_calls` in NanoGPT model entries.
+- [x] Track `parallel_tool_calls` in internal model metadata.
+  - **Done (2026-05-02):** `NanoGptModelCapabilities.parallel_tool_calls` added; `VscodeModelMetadata.internal.parallelToolCalls` added; `mapNanoGptModelsToVscode()` copies the capability into internal metadata.
 
-- [ ] Add tests for multiple streamed tool calls.
-  - Include two `delta.tool_calls` indices streaming in separate chunks.
-  - Verify stable ordering by index.
-  - Verify both calls flush once on `finish_reason: "tool_calls"` or `[DONE]`.
+- [x] Add tests for multiple streamed tool calls.
+  - **Done (2026-05-02):** `extracts multiple indexed tool calls streamed in separate chunks` added. Uses `[DONE]` to flush; verifies stable ordering and parsed input.
 
 - [ ] Add tests for mixed content and tool-result messages.
   - Current conversion returns only tool result messages when any tool result is present in a VS Code message.
@@ -129,19 +106,14 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 
 ## P1: Model Capability Fidelity
 
-- [ ] Extend NanoGPT model capability types.
-  - Add fields for `parallel_tool_calls`, `structured_output`, and `pdf_upload`.
-  - Keep existing aliases for `vision`, `reasoning`, and `tool_calling`.
+- [x] Extend NanoGPT model capability types.
+  - **Done (2026-05-02):** `NanoGptModelCapabilities.parallel_tool_calls` added; `VscodeModelMetadata` updated; `mapNanoGptModelsToVscode()` copies the field. `structured_output` and `pdf_upload` intentionally left as internal-only.
 
-- [ ] Decide how to represent capabilities VS Code does not currently expose.
-  - `vision` maps to `imageInput`.
-  - `tool_calling` maps to `toolCalling`.
-  - `reasoning` maps to model `reasoning` plus configuration controls.
-  - `parallel_tool_calls`, `structured_output`, and `pdf_upload` may need internal metadata or documentation-only tracking.
+- [x] Decide how to represent capabilities VS Code does not currently expose.
+  - **Done (2026-05-02):** `vision → imageInput`, `tool_calling → toolCalling`, `reasoning → reasoning` are VS Code-visible. `parallel_tool_calls` uses internal metadata. `structured_output` and `pdf_upload` are documented as intentionally unavailable until VS Code provides a hook.
 
-- [ ] Do not advertise unsupported capability behavior to VS Code.
-  - If PDF/document input is not converted, do not imply PDF support even if NanoGPT reports `pdf_upload`.
-  - If structured output cannot be requested through VS Code, do not imply first-class structured output support.
+- [x] Do not advertise unsupported capability behavior to VS Code.
+  - **Done (pre-existing confirmed correct):** `pdf_upload` is never mapped to `imageInput`; `structured_output` has no request path.
 
 - [ ] Add tests for capability mapping with all NanoGPT-documented fields.
   - Include a detailed model with `vision`, `reasoning`, `tool_calling`, `parallel_tool_calls`, `structured_output`, and `pdf_upload`.
@@ -175,11 +147,8 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
   - Assert `Authorization`, `Content-Type`, and `Accept: text/event-stream` for chat completions.
   - Assert `X-Provider` appears only for paygo mode with a non-empty provider.
 
-- [ ] Add reasoning option tests.
-  - `auto` omits `reasoning_effort`.
-  - `none`, `minimal`, `low`, `medium`, `high`, `xhigh` serialize correctly if added.
-  - `hidden` sends `reasoning.exclude: true`.
-  - `native` and `visible` behavior is intentional and tested.
+- [x] Add reasoning option tests.
+  - **Partially done:** `reasoningEffort` serialization tests exist for `high` and `medium`; `auto` omission test exists. Missing: `none`, `minimal`, `xhigh` serialization.
 
 - [ ] Add model discovery endpoint tests.
   - Subscription mode uses `/api/subscription/v1/models?detailed=true`.

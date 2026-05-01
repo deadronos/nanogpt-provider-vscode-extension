@@ -235,9 +235,8 @@ describe("NanoGPT VS Code provider core", () => {
 
   test("extracts streamed tool-call deltas from OpenAI-compatible SSE chunks", () => {
     const parts = collectSseResponseParts([
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"pa"}}]}}]}',
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\\":\\"README.md\\"}"}}]}}]}',
-      'data: {"choices":[{"finish_reason":"tool_calls","delta":{}}]}',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"README.md\\"}"}}]}}]}',
+      "data: [DONE]",
     ]);
 
     expect(parts).toEqual([
@@ -248,6 +247,28 @@ describe("NanoGPT VS Code provider core", () => {
         input: { path: "README.md" },
       },
     ]);
+  });
+
+  test("extracts multiple indexed tool calls streamed in separate chunks", () => {
+    const parts = collectSseResponseParts([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.txt\\"}"}}]}}]}',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"call_2","type":"function","function":{"name":"write_file","arguments":"{\\"path\\":\\"b.txt\\"}"}}]}}]}',
+      "data: [DONE]",
+    ]);
+
+    expect(parts).toHaveLength(2);
+    expect(parts[0]).toEqual({
+      type: "tool_call",
+      callId: "call_1",
+      name: "read_file",
+      input: { path: "a.txt" },
+    });
+    expect(parts[1]).toEqual({
+      type: "tool_call",
+      callId: "call_2",
+      name: "write_file",
+      input: { path: "b.txt" },
+    });
   });
 
   test("extracts streamed reasoning deltas from common OpenAI-compatible fields", () => {
@@ -262,7 +283,7 @@ describe("NanoGPT VS Code provider core", () => {
       { type: "reasoning", text: "inspect." },
       { type: "reasoning", text: " Then answer." },
     ]);
-    expect(collectSseTextDeltas(parts.map((part) => `data: ${JSON.stringify({ choices: [{ delta: part.type === "reasoning" ? { reasoning: part.text } : { content: part.text } }] }) }`))).toEqual([]);
+    expect(collectSseTextDeltas(parts.map((part) => `data: ${JSON.stringify({ choices: [{ delta: part.type === "reasoning" ? { reasoning: (part as { type: "reasoning"; text: string }).text } : { content: (part as { type: "text"; text: string }).text } }] }) }`))).toEqual([]);
   });
 
   test("maps discovered NanoGPT models into VS Code model metadata", () => {

@@ -397,6 +397,7 @@ type PendingToolCall = {
 export class NanoGptSseParser {
   private readonly toolCalls = new Map<number, PendingToolCall>();
   private emittedToolCalls = false;
+  private lastSeenIndex = 0;
 
   acceptLines(lines: readonly string[]): NanoGptResponsePart[] {
     const parts: NanoGptResponsePart[] = [];
@@ -436,7 +437,11 @@ export class NanoGptSseParser {
           }
 
           for (const toolCall of choice.delta?.tool_calls ?? []) {
-            const index = isPositiveNumber(toolCall.index) ? toolCall.index : 0;
+            const index = isPositiveNumber(toolCall.index) ? toolCall.index : this.lastSeenIndex;
+            if (isPositiveNumber(toolCall.index)) {
+              this.lastSeenIndex = toolCall.index;
+            }
+
             const pending = this.toolCalls.get(index) ?? { id: "", name: "", arguments: "" };
             if (typeof toolCall.id === "string") {
               pending.id = toolCall.id;
