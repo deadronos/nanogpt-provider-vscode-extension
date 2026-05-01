@@ -13,7 +13,7 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 ## P0: Required Correctness
 
 - [x] Keep API key configuration available on both discovery and chat response paths.
-  - **Done (2026-05-02):** Added connection fields (`apiKey`, `routingMode`, `provider`) to per-model `configurationSchema` in `buildReasoningConfigurationSchema()`. Schema applied to all discovered and fallback models.
+  - **Done (2026-05-02):** Added connection fields (`apiKey`, `routingMode`, `provider`) to per-model `configurationSchema` in `buildModelConfigurationSchema()`. Schema applied to all discovered and fallback models.
   - Verify in an extension host with `Chat: Manage Language Models` after packaging/installing.
   - Confirm a provider-configured key is available to `provideLanguageModelChatResponse`, not only `provideLanguageModelChatInformation`.
 
@@ -117,7 +117,7 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 
 ## P2: Naming, Shape, and Maintainability
 
-- [x] Rename `buildReasoningConfigurationSchema`.
+- [x] Rename `buildModelConfigurationSchema`.
   - **Done (2026-05-02):** Renamed to `buildModelConfigurationSchema`. All call sites updated in `src/nanogpt.ts` (definition + `mapNanoGptModelsToVscode`), `src/extension.ts` (import + `DEFAULT_MODELS`). JSDoc added explaining the manual `package.json` sync requirement.
 
 - [x] Consolidate duplicated configuration schemas.
