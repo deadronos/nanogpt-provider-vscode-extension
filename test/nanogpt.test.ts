@@ -346,6 +346,42 @@ describe("NanoGPT VS Code provider core", () => {
     ]);
   });
 
+  test("maps all NanoGPT capability fields correctly, leaving internal-only fields off VS Code surface", () => {
+    // structured_output and pdf_upload are not in the capabilities type —
+    // they are intentionally omitted from VS Code-visible mapping. We use a
+    // type assertion to simulate what a NanoGPT response with those fields
+    // would contain, then verify they do not leak into VS Code metadata.
+    const rawEntry = {
+      id: "test/model",
+      name: "Test Model",
+      context_length: 128000,
+      max_output_tokens: 8192,
+      capabilities: {
+        vision: true,
+        reasoning: true,
+        tool_calling: true,
+        parallel_tool_calls: true,
+        structured_output: true,
+        pdf_upload: true,
+      },
+    } as unknown as Parameters<typeof mapNanoGptModelsToVscode>[0][number];
+
+    const models = mapNanoGptModelsToVscode([rawEntry]);
+
+    expect(models).toHaveLength(1);
+    expect(models[0]!.capabilities).toEqual({
+      imageInput: true,
+      toolCalling: true,
+    });
+    expect(models[0]!.reasoning).toBe(true);
+    expect(models[0]!.internal).toEqual({
+      parallelToolCalls: true,
+    });
+    // structured_output and pdf_upload must not appear in VS Code-visible capabilities.
+    expect(models[0]!.capabilities).not.toHaveProperty("structuredOutput");
+    expect(models[0]!.capabilities).not.toHaveProperty("pdfUpload");
+  });
+
   test("advertises VS Code tool calling when NanoGPT reports tool-call support", () => {
     const models = mapNanoGptModelsToVscode([
       {
