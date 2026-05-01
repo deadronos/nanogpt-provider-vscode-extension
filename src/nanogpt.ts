@@ -504,6 +504,23 @@ export function buildReasoningConfigurationSchema(): VscodeModelMetadata["config
   return {
     type: "object",
     properties: {
+      apiKey: {
+        type: "string",
+        secret: true,
+        markdownDescription: "NanoGPT API key.",
+      },
+      routingMode: {
+        type: "string",
+        enum: ["subscription", "paygo"],
+        enumItemLabels: ["Subscription", "Pay as you go"],
+        default: "subscription",
+        description: "NanoGPT routing surface for chat completions.",
+      },
+      provider: {
+        type: "string",
+        default: "",
+        description: "Optional upstream provider id sent as X-Provider when routingMode is paygo.",
+      },
       reasoningEffort: {
         type: "string",
         enum: ["auto", "low", "medium", "high"],
@@ -565,7 +582,7 @@ export function mapNanoGptModelsToVscode(
           ),
         },
         reasoning,
-        ...(reasoning ? { configurationSchema: buildReasoningConfigurationSchema() } : {}),
+        configurationSchema: buildReasoningConfigurationSchema(),
       },
     ];
   });

@@ -290,6 +290,12 @@ describe("NanoGPT VS Code provider core", () => {
           toolCalling: true,
         },
         reasoning: false,
+        configurationSchema: expect.objectContaining({
+          properties: expect.objectContaining({
+            apiKey: expect.objectContaining({ secret: true }),
+            routingMode: expect.objectContaining({ enum: ["subscription", "paygo"] }),
+          }),
+        }),
       },
     ]);
   });
