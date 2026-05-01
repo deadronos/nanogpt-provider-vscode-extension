@@ -72,14 +72,11 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 - [x] Add tests for multiple streamed tool calls.
   - **Done (2026-05-02):** `extracts multiple indexed tool calls streamed in separate chunks` added. Uses `[DONE]` to flush; verifies stable ordering and parsed input.
 
-- [ ] Add tests for mixed content and tool-result messages.
-  - Current conversion returns only tool result messages when any tool result is present in a VS Code message.
-  - Confirm this matches VS Code's real message shape.
-  - If VS Code can send mixed text plus tool result content in one message, preserve both without lossy conversion.
+- [x] Add tests for mixed content and tool-result messages.
+  - **Done (2026-05-02):** `toNanoGptMessages()` updated to preserve text content alongside tool result messages when both are present in the same VS Code message. Test added: `preserves text content alongside tool results in the same message`.
 
-- [ ] Add defensive handling for NanoGPT tool validation errors.
-  - NanoGPT documents invalid/oversized tool specs returning 400s such as `tool_spec_too_large`, `invalid_tool_spec`, or `invalid_tool_spec_parse`.
-  - Optionally preflight serialized tool payload size near the documented 200 KB limit.
+- [x] Add defensive handling for NanoGPT tool validation errors.
+  - **Done (2026-05-02):** `toNanoGptTools()` preflight-checks serialized tool payload size against the 200 KB limit using `TextEncoder`. Throws a descriptive error if exceeded. Test added: `rejects tool payloads exceeding the 200 KB NanoGPT limit`.
 
 ## P1: Model Discovery and Routing Alignment
 

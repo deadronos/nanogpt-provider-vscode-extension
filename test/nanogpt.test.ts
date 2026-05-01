@@ -110,6 +110,27 @@ describe("NanoGPT VS Code provider core", () => {
     ]);
   });
 
+  test("preserves text content alongside tool results in the same message", () => {
+    const messages = toNanoGptMessages([
+      {
+        role: "user",
+        content: [
+          { kind: "text", value: "Context: " },
+          {
+            callId: "call_1",
+            content: [{ kind: "text", value: "file contents" }],
+          },
+        ],
+      },
+    ]);
+
+    // Text is preserved as a separate message before the tool result.
+    expect(messages).toEqual([
+      { role: "user", content: "Context: " },
+      { role: "tool", tool_call_id: "call_1", content: "file contents" },
+    ]);
+  });
+
   test("builds subscription chat completion requests without paygo provider header", () => {
     const request = buildNanoGptChatCompletionRequest({
       apiKey: "test-key",
@@ -402,5 +423,23 @@ describe("NanoGPT VS Code provider core", () => {
       },
       reasoning: true,
     });
+  });
+
+  test("rejects tool payloads exceeding the 200 KB NanoGPT limit", () => {
+    const hugeTool = {
+      name: "mega_tool",
+      description: "A".repeat(250 * 1024),
+      inputSchema: { type: "object", properties: { data: { type: "string" } } },
+    };
+
+    expect(() =>
+      buildNanoGptChatCompletionRequest({
+        apiKey: "test-key",
+        modelId: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "Hi" }],
+        routingMode: "subscription",
+        tools: [hugeTool],
+      }),
+    ).toThrow("exceeds the 200 KB limit");
   });
 });

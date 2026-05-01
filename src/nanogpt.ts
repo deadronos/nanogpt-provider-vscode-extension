@@ -265,6 +265,23 @@ export function toNanoGptMessages(messages: readonly VscodeLikeMessage[]): NanoG
       }
 
       if (toolResultMessages.length > 0) {
+        // Preserve text content alongside tool results when both are present.
+        const hasText = contentParts.some(
+          (part) => part.type === "text" && (part as NanoGptTextContentPart).text.trim(),
+        );
+        if (hasText) {
+          const textContent = contentParts
+            .filter((part): part is NanoGptTextContentPart => part.type === "text")
+            .map((part) => part.text)
+            .join("");
+          return [
+            {
+              role: resolveRole(message.role),
+              content: textContent,
+            } as NanoGptChatMessage,
+            ...toolResultMessages,
+          ];
+        }
         return toolResultMessages;
       }
 
@@ -304,6 +321,14 @@ export function toNanoGptMessages(messages: readonly VscodeLikeMessage[]): NanoG
 function toNanoGptTools(tools: readonly VscodeLikeTool[] | undefined): unknown[] | undefined {
   if (!tools || tools.length === 0) {
     return undefined;
+  }
+
+  const serialized = JSON.stringify(tools);
+  if (new TextEncoder().encode(serialized).length > 200 * 1024) {
+    throw new Error(
+      "NanoGPT tool payload exceeds the 200 KB limit. " +
+        "Try reducing the number of tools or simplifying tool descriptions and input schemas.",
+    );
   }
 
   return tools.map((tool) => ({
