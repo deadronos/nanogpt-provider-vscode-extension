@@ -537,7 +537,21 @@ export function collectSseTextDeltas(lines: readonly string[]): string[] {
   return collectSseResponseParts(lines).flatMap((part) => (part.type === "text" ? [part.text] : []));
 }
 
-export function buildReasoningConfigurationSchema(): VscodeModelMetadata["configurationSchema"] {
+/**
+ * Builds the per-model configuration schema for NanoGPT models.
+ *
+ * This schema defines connection fields (apiKey, routingMode, provider)
+ * and reasoning controls (reasoningEffort, reasoningOutput) that VS Code
+ * renders in the per-model configuration panel.
+ *
+ * NOTE: The `package.json` `languageModelChatProviders` contribution schema
+ * is a manual mirror of this function's return value. When properties are
+ * added, renamed, or removed here, the corresponding entry in `package.json`
+ * must be updated by hand to keep the VS Code extension manifest in sync.
+ * A build-step to generate `package.json` from this function would eliminate
+ * that sync responsibility if the project grows more schema properties.
+ */
+export function buildModelConfigurationSchema(): VscodeModelMetadata["configurationSchema"] {
   return {
     type: "object",
     properties: {
@@ -622,7 +636,7 @@ export function mapNanoGptModelsToVscode(
         internal: {
           parallelToolCalls: Boolean(capabilities.parallel_tool_calls),
         },
-        configurationSchema: buildReasoningConfigurationSchema(),
+        configurationSchema: buildModelConfigurationSchema(),
       },
     ];
   });

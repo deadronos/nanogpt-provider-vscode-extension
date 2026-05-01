@@ -117,15 +117,11 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 
 ## P2: Naming, Shape, and Maintainability
 
-- [ ] Rename `buildReasoningConfigurationSchema`.
-  - It now includes API key, routing mode, provider, and reasoning controls.
-  - Suggested names: `buildModelConfigurationSchema` or `buildProviderModelConfigurationSchema`.
-  - Update imports, tests, and fallback model setup.
+- [x] Rename `buildReasoningConfigurationSchema`.
+  - **Done (2026-05-02):** Renamed to `buildModelConfigurationSchema`. All call sites updated in `src/nanogpt.ts` (definition + `mapNanoGptModelsToVscode`), `src/extension.ts` (import + `DEFAULT_MODELS`). JSDoc added explaining the manual `package.json` sync requirement.
 
-- [ ] Consolidate duplicated configuration schemas.
-  - `package.json` provider contribution and runtime model configuration schema should stay in sync.
-  - Consider defining schema fragments in TypeScript and documenting the manual package contribution mirror.
-  - Avoid generating `package.json` unless the project adopts a build step for manifests.
+- [x] Consolidate duplicated configuration schemas.
+  - **Done (2026-05-02):** JSDoc on `buildModelConfigurationSchema()` documents that `package.json` `languageModelChatProviders` is a manual mirror and must be kept in sync by hand. Recommended build-step approach noted for future consideration.
 
 - [ ] Revisit fallback model metadata.
   - Confirm `gpt-5.4-mini` is still a good fallback.

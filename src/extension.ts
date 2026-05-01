@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { NanoGptClient } from "./client.js";
 import {
-  buildReasoningConfigurationSchema,
+  buildModelConfigurationSchema,
   estimateTokenCount,
   toNanoGptMessages,
   type NanoGptReasoningEffort,
@@ -27,7 +27,7 @@ const DEFAULT_MODELS: VscodeModelMetadata[] = [
       toolCalling: false,
     },
     reasoning: true,
-    configurationSchema: buildReasoningConfigurationSchema(),
+    configurationSchema: buildModelConfigurationSchema(),
   },
 ];
 
