@@ -112,9 +112,8 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 - [x] Do not advertise unsupported capability behavior to VS Code.
   - **Done (pre-existing confirmed correct):** `pdf_upload` is never mapped to `imageInput`; `structured_output` has no request path.
 
-- [ ] Add tests for capability mapping with all NanoGPT-documented fields.
-  - Include a detailed model with `vision`, `reasoning`, `tool_calling`, `parallel_tool_calls`, `structured_output`, and `pdf_upload`.
-  - Assert VS Code-visible fields and any internal fields are mapped as designed.
+- [x] Add tests for capability mapping with all NanoGPT-documented fields.
+  - **Done (2026-05-02):** `maps all NanoGPT capability fields correctly, leaving internal-only fields off VS Code surface` added. Uses `as unknown as Parameters<...>` to include `structured_output` and `pdf_upload` which are not in the capabilities type but are intentionally omitted from VS Code mapping. Verifies vision→imageInput, tool_calling→toolCalling, reasoning→reasoning, parallel_tool_calls→internal.parallelToolCalls, and that structured_output/pdf_upload do not appear in VS Code capabilities.
 
 ## P2: Naming, Shape, and Maintainability
 
