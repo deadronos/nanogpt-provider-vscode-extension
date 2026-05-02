@@ -460,6 +460,13 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     options: { silent: boolean; configuration?: ProviderConfiguration },
     token: vscode.CancellationToken,
   ): Promise<VscodeModelMetadata[]> {
+    if (!options.configuration) {
+      // VS Code automatically creates and queries a default configured instance based on the
+      // package.json languageModelChatProviders contribution. Returning models for the legacy
+      // global unconfigured provider would result in duplicates.
+      return [];
+    }
+
     const requestId = this.nextRequestId("discovery");
     const startedAt = Date.now();
     const apiKey = await resolveApiKey(this.context, options.configuration);
