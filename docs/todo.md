@@ -135,17 +135,14 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 
 ## P2: Testing and Verification
 
-- [ ] Add request-construction tests for headers.
-  - Assert `Authorization`, `Content-Type`, and `Accept: text/event-stream` for chat completions.
-  - Assert `X-Provider` appears only for paygo mode with a non-empty provider.
+- [x] Add request-construction tests for headers.
+  - **Done (2026-05-02):** `X-Provider header appears only for paygo mode with a non-empty provider` added. Asserts `X-Provider` is absent for empty provider, and absent for subscription routing (paygo always sets it regardless of routing mode intent). Existing subscription test already covers `Authorization`, `Content-Type`, `Accept: text/event-stream`.
 
 - [x] Add reasoning option tests.
-  - **Partially done:** `reasoningEffort` serialization tests exist for `high` and `medium`; `auto` omission test exists. Missing: `none`, `minimal`, `xhigh` serialization.
+  - **Done (2026-05-02):** `serializes all reasoning effort values: none, minimal, and xhigh` added. Now covers all effort values. Existing tests cover `high`, `medium`, `auto` omission, and `hidden` reasoning exclusion.
 
-- [ ] Add model discovery endpoint tests.
-  - Subscription mode uses `/api/subscription/v1/models?detailed=true`.
-  - Paygo mode uses the chosen endpoint strategy.
-  - Discovery handles unauthenticated responses if implemented.
+- [x] Add model discovery endpoint tests.
+  - **Done (2026-05-02):** `discovers models with detailed NanoGPT metadata` extended to assert both paygo (`/api/v1/models?detailed=true`) and subscription (`/api/subscription/v1/models?detailed=true`) URLs are used depending on `routingMode`.
 
 - [ ] Add extension-host smoke test notes.
   - Configure key through `Chat: Manage Language Models`.
