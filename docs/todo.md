@@ -144,12 +144,8 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 - [x] Add model discovery endpoint tests.
   - **Done (2026-05-02):** `discovers models with detailed NanoGPT metadata` extended to assert both paygo (`/api/v1/models?detailed=true`) and subscription (`/api/subscription/v1/models?detailed=true`) URLs are used depending on `routingMode`.
 
-- [ ] Add extension-host smoke test notes.
-  - Configure key through `Chat: Manage Language Models`.
-  - Confirm catalog discovery.
-  - Send a text chat request.
-  - Send a reasoning-capable model request and confirm thinking display or hidden behavior.
-  - Trigger a tool call and confirm VS Code receives `LanguageModelToolCallPart`.
+- [x] Add extension-host smoke test notes.
+  - **Done (2026-05-02):** Added [docs/extension-host-smoke-test.md](docs/extension-host-smoke-test.md) with a manual checklist for provider configuration, model discovery, basic text response, reasoning output modes, and tool-calling verification (`LanguageModelToolCallPart`).
 
 ## P3: Chat-Adjacent NanoGPT Features
 

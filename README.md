@@ -138,6 +138,8 @@ npm run package
 
 To debug the extension during development, open this repository in VS Code and launch the extension host from the Run and Debug view.
 
+For manual extension-host verification steps, see [docs/extension-host-smoke-test.md](docs/extension-host-smoke-test.md).
+
 ## Current scope
 
 Supported:
