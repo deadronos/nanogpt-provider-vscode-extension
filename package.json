@@ -94,6 +94,7 @@
         "nanogpt.apiKey": {
           "type": "string",
           "default": "",
+          "secret": true,
           "markdownDescription": "NanoGPT API key. Prefer the `NanoGPT: Manage API Key` command because settings can be synced or committed by accident."
         },
         "nanogpt.routingMode": {

@@ -165,9 +165,9 @@ Known limitations:
 
 ## Security notes
 
-- Prefer the VS Code provider configuration flow or `NanoGPT: Manage API Key` for storing your API key.
-- Avoid putting API keys directly into checked-in settings files.
-- If you use `nanogpt.apiKey` manually, make sure it is not committed to Git.
+- **Prefer the VS Code provider configuration flow** (`Chat: Manage Language Models`) or the `NanoGPT: Manage API Key` command — both store your key in VS Code's secret storage rather than in plain-text settings.
+- Avoid putting API keys directly into checked-in settings files. If you must use `nanogpt.apiKey` in settings, ensure it is not committed to Git.
+- The extension also reads `NANOGPT_API_KEY` from the environment as a last-resort fallback. Use this only in local development; environment variables can leak through crash reports, process listings, or CI logs.
 
 ## License
 

@@ -64,10 +64,17 @@ type ProviderConfiguration = {
   reasoningOutput?: unknown;
 };
 
+/**
+ * Returns the `nanogpt` workspace configuration section.
+ */
 function getConfig() {
   return vscode.workspace.getConfiguration("nanogpt");
 }
 
+/**
+ * Resolves the NanoGPT routing mode from provider configuration or
+ * workspace settings. Defaults to `"subscription"`.
+ */
 function getRoutingMode(providerConfiguration?: ProviderConfiguration): NanoGptRoutingMode {
   const value =
     typeof providerConfiguration?.routingMode === "string"
@@ -76,12 +83,20 @@ function getRoutingMode(providerConfiguration?: ProviderConfiguration): NanoGptR
   return value === "paygo" ? "paygo" : "subscription";
 }
 
+/**
+ * Resolves the optional upstream provider ID from provider configuration
+ * or workspace settings. Returns an empty string when not configured.
+ */
 function getProvider(providerConfiguration?: ProviderConfiguration): string {
   return typeof providerConfiguration?.provider === "string"
     ? providerConfiguration.provider
     : getConfig().get<string>("provider", "");
 }
 
+/**
+ * Resolves the model allowlist from provider configuration or workspace
+ * settings. Returns an empty array when no allowlist is configured.
+ */
 function getModelAllowlist(providerConfiguration?: ProviderConfiguration): string[] {
   if (Array.isArray(providerConfiguration?.models)) {
     return providerConfiguration.models.filter((model): model is string => typeof model === "string");
@@ -90,6 +105,11 @@ function getModelAllowlist(providerConfiguration?: ProviderConfiguration): strin
   return getConfig().get<string[]>("models", []);
 }
 
+/**
+ * Resolves the reasoning effort from model options, provider configuration,
+ * or workspace settings. Validates against the known NanoGPT effort values.
+ * Returns `undefined` when the configured value is invalid or unrecognised.
+ */
 function getReasoningEffort(
   providerConfiguration?: ProviderConfiguration,
   modelOptions?: { readonly [name: string]: unknown },
@@ -119,6 +139,11 @@ function getReasoningEffort(
     : undefined;
 }
 
+/**
+ * Resolves the reasoning output mode from model options, provider
+ * configuration, or workspace settings. Validates against `"hidden"`,
+ * `"visible"`, and `"native"`; defaults to `"native"` when unrecognised.
+ */
 function getReasoningOutput(
   providerConfiguration?: ProviderConfiguration,
   modelOptions?: { readonly [name: string]: unknown },
@@ -133,6 +158,13 @@ function getReasoningOutput(
   return value === "hidden" || value === "visible" || value === "native" ? value : "native";
 }
 
+/**
+ * Resolves the NanoGPT API key from available sources, in order of priority:
+ * 1. Per-model provider configuration (from Chat: Manage Language Models)
+ * 2. VS Code secret storage (set via NanoGPT: Manage API Key command)
+ * 3. VS Code settings (nanogpt.apiKey — avoid checking this into Git)
+ * 4. Environment variable NANOGPT_API_KEY (use with caution in dev-only contexts)
+ */
 async function resolveApiKey(
   context: vscode.ExtensionContext,
   providerConfiguration?: ProviderConfiguration,
@@ -145,6 +177,10 @@ async function resolveApiKey(
   );
 }
 
+/**
+ * Creates an `AbortSignal` that mirrors the VS Code cancellation token.
+ * Aborts immediately if the token is already cancelled.
+ */
 function createAbortSignal(token: vscode.CancellationToken): AbortSignal {
   const controller = new AbortController();
   if (token.isCancellationRequested) {
@@ -154,6 +190,10 @@ function createAbortSignal(token: vscode.CancellationToken): AbortSignal {
   return controller.signal;
 }
 
+/**
+ * Converts VS Code's typed chat message parts into the generic
+ * `VscodeLikePart` shape expected by {@link toNanoGptMessages}.
+ */
 function toCoreMessages(
   messages: readonly vscode.LanguageModelChatRequestMessage[],
 ): Parameters<typeof toNanoGptMessages>[0] {
@@ -188,6 +228,11 @@ function toCoreMessages(
   }));
 }
 
+/**
+ * Maps the VS Code `LanguageModelChatToolMode` enum to the NanoGPT
+ * tool-mode string (`"auto"` | `"required"`). Returns `undefined`
+ * when no mode is configured.
+ */
 function toToolMode(
   toolMode: vscode.LanguageModelChatToolMode | undefined,
 ): "auto" | "required" | undefined {
@@ -200,6 +245,11 @@ function toToolMode(
   return undefined;
 }
 
+/**
+ * Creates a VS Code `LanguageModelThinkingPart` when the API is available
+ * in the current VS Code build. Returns `undefined` on older builds that
+ * lack thinking part support, allowing fallback to text-based reasoning.
+ */
 function createThinkingPart(text: string): vscode.LanguageModelResponsePart | undefined {
   const thinkingCtor = (vscode as unknown as {
     LanguageModelThinkingPart?: new (
@@ -212,14 +262,34 @@ function createThinkingPart(text: string): vscode.LanguageModelResponsePart | un
   return thinkingCtor ? new thinkingCtor(text) : undefined;
 }
 
+/**
+ * VS Code Language Model Chat Provider backed by NanoGPT.
+ *
+ * Implements the {@link ChatProviderApi} interface to:
+ * - Discover models from the NanoGPT API (or serve a fallback).
+ * - Stream chat completions and map responses to VS Code parts.
+ * - Provide approximate token counts.
+ */
 class NanoGptLanguageModelProvider implements ChatProviderApi {
   private cachedModels: VscodeModelMetadata[] | undefined;
 
+  /**
+   * @param context - VS Code extension context for secret storage.
+   * @param client  - The NanoGPT HTTP client instance.
+   */
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly client: NanoGptClient,
   ) {}
 
+  /**
+   * Provides the list of available NanoGPT models to VS Code.
+   *
+   * - Returns the allowlist-derived set when a model allowlist is configured.
+   * - Falls back to a default model when no API key is available.
+   * - Discovers live models from NanoGPT when an API key is configured.
+   * - Caches the result and falls back to the cache on discovery failure.
+   */
   async provideLanguageModelChatInformation(
     options: { silent: boolean; configuration?: ProviderConfiguration },
     token: vscode.CancellationToken,
@@ -263,6 +333,17 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     }
   }
 
+  /**
+   * Streams a chat completion response from NanoGPT and reports
+   * progress parts to VS Code.
+   *
+   * - Text deltas → `LanguageModelTextPart`.
+   * - Reasoning deltas → `LanguageModelThinkingPart` (when available)
+   *   or `LanguageModelTextPart` (when reasoning output is `visible`).
+   * - Tool calls → `LanguageModelToolCallPart`.
+   *
+   * @throws `LanguageModelError` when no API key is configured.
+   */
   async provideLanguageModelChatResponse(
     model: VscodeModelMetadata,
     messages: readonly vscode.LanguageModelChatRequestMessage[],
@@ -311,6 +392,10 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     });
   }
 
+  /**
+   * Estimates the token count for a text string or chat request message.
+   * Uses a rough character-count heuristic; not model-accurate.
+   */
   async provideTokenCount(
     _model: VscodeModelMetadata,
     text: string | vscode.LanguageModelChatRequestMessage,
@@ -323,11 +408,22 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     return estimateTokenCount(toCoreMessages([text])[0]);
   }
 
+  /**
+   * Clears the cached model list so the next discovery call fetches
+   * fresh data from NanoGPT.
+   */
   clearModelCache(): void {
     this.cachedModels = undefined;
   }
 }
 
+/**
+ * Activates the NanoGPT provider extension.
+ *
+ * Registers the language model chat provider and the `nanogpt.manage`
+ * and `nanogpt.refreshModels` commands. Shows a warning when the VS Code
+ * build does not support `registerLanguageModelChatProvider`.
+ */
 export function activate(context: vscode.ExtensionContext): void {
   const provider = new NanoGptLanguageModelProvider(context, new NanoGptClient());
   const lm = vscode.lm as typeof vscode.lm & {
@@ -373,4 +469,5 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 }
 
+/** No-op deactivation hook. */
 export function deactivate(): void {}

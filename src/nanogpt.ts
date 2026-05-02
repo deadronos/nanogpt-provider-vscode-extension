@@ -122,10 +122,18 @@ export type NanoGptRequest = {
   body: string;
 };
 
+/**
+ * Type guard: returns `true` when the value is a finite positive number.
+ */
 function isPositiveNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
+/**
+ * Resolves a VS Code message role (string or numeric enum) to a
+ * NanoGPT-compatible role string. Defaults to `"user"` for unrecognised
+ * values.
+ */
 function resolveRole(role: string | number): NanoGptMessageRole {
   if (role === "system" || role === "user" || role === "assistant") {
     return role;
@@ -142,6 +150,13 @@ function resolveRole(role: string | number): NanoGptMessageRole {
   return "user";
 }
 
+/**
+ * Extracts the text content from a VS Code-like message part.
+ *
+ * Checks both `part.value` and `part.text` as VS Code uses different
+ * property names depending on whether the part comes from the real API
+ * or a test helper.
+ */
 function getTextPartValue(part: VscodeLikePart): string {
   if (typeof part.value === "string") {
     return part.value;
@@ -154,14 +169,25 @@ function getTextPartValue(part: VscodeLikePart): string {
   return "";
 }
 
+/**
+ * Type guard: returns `true` when `value` is a non-null object.
+ */
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/**
+ * Encodes binary data as a base64 string using Node's `Buffer`.
+ */
 function toBase64(data: Uint8Array): string {
   return Buffer.from(data).toString("base64");
 }
 
+/**
+ * Converts a VS Code data part to a NanoGPT `image_url` content part
+ * when it carries image bytes. Returns `null` when the part is not
+ * an image or lacks `Uint8Array` data.
+ */
 function toNanoGptImagePart(part: VscodeLikePart): NanoGptImageUrlContentPart | null {
   if (!(part.data instanceof Uint8Array)) {
     return null;
@@ -180,6 +206,10 @@ function toNanoGptImagePart(part: VscodeLikePart): NanoGptImageUrlContentPart | 
   };
 }
 
+/**
+ * Converts a VS Code tool-call part into a NanoGPT `NanoGptToolCall`.
+ * Returns `null` when the part lacks a `callId` or `name`.
+ */
 function toToolCall(part: VscodeLikePart): NanoGptToolCall | null {
   if (typeof part.callId !== "string" || typeof part.name !== "string") {
     return null;
@@ -195,6 +225,13 @@ function toToolCall(part: VscodeLikePart): NanoGptToolCall | null {
   };
 }
 
+/**
+ * Converts a VS Code tool-result part into a plain-text content string.
+ *
+ * Handles text sub-parts, JSON/UTF-8 data sub-parts, and generic
+ * binary sub-parts (encoded as `data:` URIs). Returns `null` when
+ * the part is not a tool result.
+ */
 function toToolResultContent(part: VscodeLikePart): string | null {
   if (typeof part.callId !== "string" || !Array.isArray(part.content)) {
     return null;
@@ -228,6 +265,18 @@ function toToolResultContent(part: VscodeLikePart): string | null {
   return values.filter(Boolean).join("\n");
 }
 
+/**
+ * Converts an array of VS Code-like chat messages into the
+ * OpenAI-compatible NanoGPT message format.
+ *
+ * - Text parts become `content: string`.
+ * - Image data parts become `image_url` content blocks.
+ * - Tool-call parts become `tool_calls[]` on assistant messages.
+ * - Tool-result parts become `role: "tool"` messages.
+ * - Empty messages are filtered out.
+ * - When a user message contains both text and tool results, the
+ *   text is preserved as a separate message before the tool results.
+ */
 export function toNanoGptMessages(messages: readonly VscodeLikeMessage[]): NanoGptChatMessage[] {
   return messages
     .flatMap((message) => {
@@ -318,6 +367,16 @@ export function toNanoGptMessages(messages: readonly VscodeLikeMessage[]): NanoG
     });
 }
 
+/**
+ * Converts VS Code-like tool definitions into the NanoGPT
+ * OpenAI-compatible `tools` array.
+ *
+ * Validates that the serialized payload does not exceed the
+ * 200 KB NanoGPT limit. Returns `undefined` when tools are
+ * absent or empty.
+ *
+ * @throws If the serialized tools exceed the 200 KB limit.
+ */
 function toNanoGptTools(tools: readonly VscodeLikeTool[] | undefined): unknown[] | undefined {
   if (!tools || tools.length === 0) {
     return undefined;
@@ -344,6 +403,17 @@ function toNanoGptTools(tools: readonly VscodeLikeTool[] | undefined): unknown[]
   }));
 }
 
+/**
+ * Builds the full HTTP request configuration for a NanoGPT
+ * chat completion call.
+ *
+ * Selects the appropriate base URL from the routing mode,
+ * adds the `X-Provider` header in paygo mode when a provider
+ * is specified, and assembles the JSON body with stream, tool,
+ * reasoning, and token controls.
+ *
+ * @returns A {@link NanoGptRequest} with `url`, `headers`, and `body`.
+ */
 export function buildNanoGptChatCompletionRequest(params: {
   apiKey: string;
   modelId: string;
@@ -419,11 +489,33 @@ type PendingToolCall = {
   arguments: string;
 };
 
+/**
+ * Incrementally parses OpenAI-compatible SSE (Server-Sent Events) chunks
+ * from a streaming chat completion response.
+ *
+ * Accumulates partial tool-call deltas across chunks and flushes
+ * completed tool calls when `finish_reason === "tool_calls"` or
+ * when a `[DONE]` token is received.
+ *
+ * Reasoning deltas are extracted from `reasoning`, `reasoning_content`,
+ * and `thinking` fields — all three are common across different upstream
+ * providers.
+ *
+ * Usage: create one instance per stream, then call {@link acceptLines}
+ * with each batch of buffered SSE lines.
+ */
 export class NanoGptSseParser {
   private readonly toolCalls = new Map<number, PendingToolCall>();
   private emittedToolCalls = false;
   private lastSeenIndex = 0;
 
+  /**
+   * Feeds one or more SSE lines into the parser and returns any
+   * completed response parts (text, reasoning, or tool calls).
+   *
+   * @param lines - Raw SSE lines, typically split from a streamed buffer.
+   * @returns Zero or more parsed {@link NanoGptResponsePart} items.
+   */
   acceptLines(lines: readonly string[]): NanoGptResponsePart[] {
     const parts: NanoGptResponsePart[] = [];
 
@@ -492,6 +584,14 @@ export class NanoGptSseParser {
     return parts;
   }
 
+  /**
+   * Flushes all accumulated tool calls, sorted by index, and
+   * parses their serialised arguments. Skips calls with missing
+   * `id` or `name` and falls back to `{}` when JSON parsing fails.
+   *
+   * Tool calls are only emitted once per stream — repeated flushes
+   * after the first are no-ops.
+   */
   private flushToolCalls(): NanoGptResponsePart[] {
     if (this.emittedToolCalls || this.toolCalls.size === 0) {
       return [];
@@ -529,10 +629,17 @@ export class NanoGptSseParser {
   }
 }
 
+/**
+ * Convenience: runs a fresh {@link NanoGptSseParser} over an array of
+ * SSE lines and returns the complete list of response parts.
+ */
 export function collectSseResponseParts(lines: readonly string[]): NanoGptResponsePart[] {
   return new NanoGptSseParser().acceptLines(lines);
 }
 
+/**
+ * Convenience: extracts only the text deltas from an array of SSE lines.
+ */
 export function collectSseTextDeltas(lines: readonly string[]): string[] {
   return collectSseResponseParts(lines).flatMap((part) => (part.type === "text" ? [part.text] : []));
 }
@@ -591,6 +698,19 @@ export function buildModelConfigurationSchema(): VscodeModelMetadata["configurat
   };
 }
 
+/**
+ * Maps an array of raw NanoGPT model entries into VS Code-compatible
+ * {@link VscodeModelMetadata} objects.
+ *
+ * - Filters by optional allowlist when provided.
+ * - Normalises variant field names (`context_length` / `contextWindow`,
+ *   `max_output_tokens` / `maxTokens`).
+ * - Computes `maxInputTokens` as `contextWindow - maxOutputTokens`.
+ * - Maps `vision` → `imageInput`, `tool_calling` → `toolCalling`,
+ *   and `parallel_tool_calls` → `internal.parallelToolCalls`.
+ * - `structured_output` and `pdf_upload` are intentionally excluded
+ *   from the VS Code-visible capabilities surface.
+ */
 export function mapNanoGptModelsToVscode(
   entries: readonly NanoGptModelEntry[],
   allowlist: readonly string[] = [],
@@ -642,6 +762,13 @@ export function mapNanoGptModelsToVscode(
   });
 }
 
+/**
+ * Provides a rough token-count estimate for budget checks.
+ *
+ * Uses a simple character-count heuristic (`text.length / 4`) plus
+ * a flat 1024-token cost per image. This is **not** model-accurate
+ * but is sufficient for VS Code's approximate token reporting.
+ */
 export function estimateTokenCount(value: string | VscodeLikeMessage): number {
   const text =
     typeof value === "string"
