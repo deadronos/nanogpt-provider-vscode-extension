@@ -135,15 +135,15 @@ function isPositiveNumber(value: unknown): value is number {
  * values.
  */
 function resolveRole(role: string | number): NanoGptMessageRole {
-  if (role === "system" || role === "user" || role === "assistant") {
-    return role;
+  if (role === "system" || role === 0) {
+    return "system";
   }
 
-  if (role === 1) {
+  if (role === "user" || role === 1) {
     return "user";
   }
 
-  if (role === 2) {
+  if (role === "assistant" || role === 2) {
     return "assistant";
   }
 
@@ -457,7 +457,7 @@ export function buildNanoGptChatCompletionRequest(params: {
         : {}),
       ...(params.reasoningOutput === "hidden"
         ? { reasoning: { exclude: true } }
-        : {}),
+        : { reasoning: { exclude: false } }),
     }),
   };
 }

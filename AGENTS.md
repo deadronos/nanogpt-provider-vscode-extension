@@ -44,3 +44,14 @@ Tests live in `test/` and run under Vitest in plain Node — no VS Code APIs are
 - [docs/todo.md](docs/todo.md) — Prioritised open work and completed items
 - [docs/nanogpt-surface-audit.md](docs/nanogpt-surface-audit.md) — NanoGPT API capability coverage analysis
 - [docs/extension-host-smoke-test.md](docs/extension-host-smoke-test.md) — Manual verification checklist for extension host testing
+
+## Update Changelog
+
+- Update CHANGELOG.md and propose to move "Unreleased" section to next semantic version bump.
+- Add any relevant breaking change notes, new features, or bug fixes to the changelog entry.
+
+## Architecture Docs
+
+look at [docs/architecture/README.md](docs/architecture/README.md) for a detailed breakdown of the extension's architecture, design constraints, module responsibilities, and implementation contracts.
+
+- Also align/update this architecture on any relevant changes not captured there yet.
