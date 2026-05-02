@@ -1,7 +1,23 @@
 import { describe, expect, test } from "vitest";
-import { NanoGptClient } from "../src/client.js";
+import { NanoGptClient, type NanoGptLogger } from "../src/client.js";
 
 describe("NanoGptClient", () => {
+  function createLoggerSink(): { logger: NanoGptLogger; entries: string[] } {
+    const entries: string[] = [];
+    const createMethod = (level: string) => (message: string) => entries.push(`${level}:${message}`);
+
+    return {
+      logger: {
+        trace: createMethod("trace"),
+        debug: createMethod("debug"),
+        info: createMethod("info"),
+        warn: createMethod("warn"),
+        error: createMethod("error"),
+      },
+      entries,
+    };
+  }
+
   function createReadableStream(chunks: string[]): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder();
     let index = 0;
@@ -211,6 +227,40 @@ describe("NanoGptClient", () => {
     });
 
     expect(released).toBe(true);
+  });
+
+  test("emits sanitized lifecycle logs for chat requests", async () => {
+    const { logger, entries } = createLoggerSink();
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Secret prompt" }],
+      routingMode: "subscription",
+      requestId: "chat-42",
+      onText: () => {},
+    });
+
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("debug:[chat-42] HTTP POST /chat/completions"),
+        expect.stringContaining("debug:[chat-42] chat response received (status=200"),
+        expect.stringContaining("trace:[chat-42] chat stream processed (chunks="),
+        expect.stringContaining("textParts=1, reasoningParts=0, toolCalls=0"),
+      ]),
+    );
+    expect(entries.join("\n")).not.toContain("test-key");
+    expect(entries.join("\n")).not.toContain("Secret prompt");
   });
 
   test("discovers models via subscription endpoint", async () => {

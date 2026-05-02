@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { NanoGptClient } from "./client.js";
+import { NanoGptClient, type NanoGptLogger } from "./client.js";
 import {
   buildModelConfigurationSchema,
   estimateTokenCount,
@@ -13,6 +13,7 @@ import {
 const VENDOR_ID = "nanogpt";
 const SECRET_KEY = "nanogpt.apiKey";
 const OUTPUT_CHANNEL_NAME = "NanoGPT";
+const VERBOSE_LOGGING_SETTING = "verboseLogging";
 const DEFAULT_MODELS: VscodeModelMetadata[] = [
   {
     id: "gpt-5.4-mini",
@@ -160,6 +161,34 @@ function formatError(error: unknown): string {
  */
 function getConfig() {
   return vscode.workspace.getConfiguration("nanogpt");
+}
+
+function isVerboseLoggingEnabled(): boolean {
+  return getConfig().get<boolean>(VERBOSE_LOGGING_SETTING, false);
+}
+
+function createLogger(output: vscode.LogOutputChannel): NanoGptLogger {
+  return {
+    trace(message) {
+      if (isVerboseLoggingEnabled()) {
+        output.trace(message);
+      }
+    },
+    debug(message) {
+      if (isVerboseLoggingEnabled()) {
+        output.debug(message);
+      }
+    },
+    info(message) {
+      output.info(message);
+    },
+    warn(message) {
+      output.warn(message);
+    },
+    error(message) {
+      output.error(message);
+    },
+  };
 }
 
 /**
@@ -407,7 +436,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly client: NanoGptClient,
-    private readonly output: vscode.LogOutputChannel,
+    private readonly logger: NanoGptLogger,
   ) {}
 
   private nextRequestId(kind: "discovery" | "chat"): string {
@@ -437,8 +466,9 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     const allowlist = getModelAllowlist(options.configuration);
     const routingMode = getRoutingMode(options.configuration);
 
-    this.output.info(
-      `[${requestId}] model discovery started (${formatKeyValuePairs({
+    this.logger.info(`[${requestId}] model discovery started`);
+    this.logger.debug(
+      `[${requestId}] model discovery parameters (${formatKeyValuePairs({
         silent: options.silent,
         routingMode,
         hasApiKey: Boolean(apiKey),
@@ -447,7 +477,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     );
 
     if (allowlist.length > 0 && !apiKey) {
-      this.output.info(
+      this.logger.warn(
         `[${requestId}] model discovery returned allowlist fallback (${formatKeyValuePairs({
           allowlistCount: allowlist.length,
           durationMs: Date.now() - startedAt,
@@ -463,7 +493,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     }
 
     if (!apiKey) {
-      this.output.warn(
+      this.logger.warn(
         `[${requestId}] model discovery missing API key; returning fallback models (${formatKeyValuePairs({
           silent: options.silent,
           routingMode,
@@ -484,21 +514,27 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         routingMode,
         allowlist: allowlist.length > 0 ? allowlist : undefined,
         signal: abortSignal.signal,
+        requestId,
       });
       const result = models.length > 0 ? models : DEFAULT_MODELS;
       this.modelCache.set(cacheKey, result);
-      this.output.info(
+      this.logger.info(
         `[${requestId}] model discovery completed (${formatKeyValuePairs({
-          routingMode,
-          discoveredModels: models.length,
           returnedModels: result.length,
           durationMs: Date.now() - startedAt,
+        })})`,
+      );
+      this.logger.debug(
+        `[${requestId}] model discovery result details (${formatKeyValuePairs({
+          routingMode,
+          discoveredModels: models.length,
+          cacheKeyReused: false,
         })})`,
       );
       return result;
     } catch (err) {
       const fallback = this.modelCache.get(cacheKey) ?? DEFAULT_MODELS;
-      this.output.error(
+      this.logger.error(
         `[${requestId}] model discovery failed (${formatKeyValuePairs({
           routingMode,
           fallbackModels: fallback.length,
@@ -543,7 +579,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     const startedAt = Date.now();
     const apiKey = await resolveApiKey(this.context, options.configuration);
     if (!apiKey) {
-      this.output.warn(`[${requestId}] chat request blocked: API key is not configured`);
+      this.logger.warn(`[${requestId}] chat request blocked: API key is not configured`);
       throw new vscode.LanguageModelError("NanoGPT API key is not configured");
     }
 
@@ -566,10 +602,15 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
       toolCalls: 0,
     };
 
-    this.output.info(
+    this.logger.info(
       `[${requestId}] chat request started (${formatKeyValuePairs({
         model: model.id,
         routingMode,
+        messageCount: messageSummary.messageCount,
+      })})`,
+    );
+    this.logger.debug(
+      `[${requestId}] chat request started (${formatKeyValuePairs({
         provider,
         maxTokens: options.modelOptions?.maxTokens ?? "default",
         toolMode,
@@ -601,6 +642,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         reasoningOutput,
         parallelToolCalls: model.internal?.parallelToolCalls,
         signal: abortSignal.signal,
+        requestId,
         onText: (text) => {
           responseSummary.textDeltas += 1;
           responseSummary.textChars += text.length;
@@ -623,18 +665,22 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
           );
         },
       });
-      this.output.info(
+      this.logger.info(
         `[${requestId}] chat request completed (${formatKeyValuePairs({
           durationMs: Date.now() - startedAt,
           textDeltas: responseSummary.textDeltas,
-          textChars: responseSummary.textChars,
           reasoningDeltas: responseSummary.reasoningDeltas,
-          reasoningChars: responseSummary.reasoningChars,
           toolCalls: responseSummary.toolCalls,
         })})`,
       );
+      this.logger.debug(
+        `[${requestId}] chat request result details (${formatKeyValuePairs({
+          textChars: responseSummary.textChars,
+          reasoningChars: responseSummary.reasoningChars,
+        })})`,
+      );
     } catch (error) {
-      this.output.error(
+      this.logger.error(
         `[${requestId}] chat request failed (${formatKeyValuePairs({
           durationMs: Date.now() - startedAt,
           textDeltas: responseSummary.textDeltas,
@@ -683,9 +729,12 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME, { log: true });
   context.subscriptions.push(output);
-  output.info("NanoGPT extension activated");
+  const logger = createLogger(output);
 
-  const provider = new NanoGptLanguageModelProvider(context, new NanoGptClient(), output);
+  logger.info("NanoGPT extension activated");
+  logger.debug(`NanoGPT verbose logging is ${isVerboseLoggingEnabled() ? "enabled" : "disabled"}`);
+
+  const provider = new NanoGptLanguageModelProvider(context, new NanoGptClient(fetch, logger), logger);
   const lm = vscode.lm as typeof vscode.lm & {
     registerLanguageModelChatProvider?: (
       vendor: string,
@@ -696,15 +745,22 @@ export function activate(context: vscode.ExtensionContext): void {
   if (typeof lm.registerLanguageModelChatProvider === "function") {
     context.subscriptions.push(lm.registerLanguageModelChatProvider(VENDOR_ID, provider));
   } else {
-    output.warn("Language Model Chat Provider API is unavailable in this VS Code build");
+    logger.warn("Language Model Chat Provider API is unavailable in this VS Code build");
     void vscode.window.showWarningMessage(
       "NanoGPT requires a VS Code build with Language Model Chat Provider support.",
     );
   }
 
   context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration(`nanogpt.${VERBOSE_LOGGING_SETTING}`)) {
+        logger.info(
+          `NanoGPT verbose logging ${isVerboseLoggingEnabled() ? "enabled" : "disabled"}`,
+        );
+      }
+    }),
     vscode.commands.registerCommand("nanogpt.manage", async () => {
-      output.info("Manage API key command invoked");
+      logger.debug("Manage API key command invoked");
       const apiKey = await vscode.window.showInputBox({
         title: "NanoGPT API key",
         prompt: "Enter a NanoGPT API key",
@@ -712,25 +768,25 @@ export function activate(context: vscode.ExtensionContext): void {
         ignoreFocusOut: true,
       });
       if (apiKey === undefined) {
-        output.info("Manage API key command cancelled");
+        logger.debug("Manage API key command cancelled");
         return;
       }
 
       if (apiKey.trim()) {
         await context.secrets.store(SECRET_KEY, apiKey.trim());
-        output.info("NanoGPT API key saved to VS Code secret storage");
+        logger.info("NanoGPT API key saved to VS Code secret storage");
         void vscode.window.showInformationMessage("NanoGPT API key saved.");
       } else {
         await context.secrets.delete(SECRET_KEY);
-        output.info("NanoGPT API key cleared from VS Code secret storage");
+        logger.info("NanoGPT API key cleared from VS Code secret storage");
         void vscode.window.showInformationMessage("NanoGPT API key cleared.");
       }
       provider.clearModelCache();
-      output.info("NanoGPT model cache cleared after API key update");
+      logger.debug("NanoGPT model cache cleared after API key update");
     }),
     vscode.commands.registerCommand("nanogpt.refreshModels", () => {
       provider.clearModelCache();
-      output.info("NanoGPT model cache cleared by refresh command");
+      logger.info("NanoGPT model cache cleared by refresh command");
       void vscode.window.showInformationMessage("NanoGPT model cache cleared.");
     }),
   );

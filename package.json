@@ -175,6 +175,11 @@
           ],
           "default": "native",
           "description": "Controls how streamed reasoning is surfaced. Native uses VS Code's thinking part when available; visible falls back to normal text."
+        },
+        "nanogpt.verboseLogging": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable verbose NanoGPT diagnostics in the Output panel. When enabled, debug and trace logs include sanitized request configuration and HTTP lifecycle details without logging prompts, tool inputs, or secrets."
         }
       }
     }
