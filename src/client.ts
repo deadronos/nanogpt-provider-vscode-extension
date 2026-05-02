@@ -1,5 +1,7 @@
 import {
   buildNanoGptChatCompletionRequest,
+  NANOGPT_BASE_URL,
+  NANOGPT_SUBSCRIPTION_BASE_URL,
   NanoGptSseParser,
   mapNanoGptModelsToVscode,
   type NanoGptChatMessage,
@@ -93,9 +95,7 @@ export class NanoGptClient {
     signal?: AbortSignal;
   }): Promise<VscodeModelMetadata[]> {
     const baseUrl =
-      params.routingMode === "subscription"
-        ? "https://nano-gpt.com/api/subscription/v1"
-        : "https://nano-gpt.com/api/v1";
+      params.routingMode === "subscription" ? NANOGPT_SUBSCRIPTION_BASE_URL : NANOGPT_BASE_URL;
     const url = new URL(`${baseUrl}/models`);
     url.searchParams.set("detailed", "true");
 

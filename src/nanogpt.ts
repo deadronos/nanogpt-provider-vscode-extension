@@ -79,7 +79,7 @@ export type NanoGptModelEntry = {
   tool_calling?: unknown;
 };
 
-export type NanoGptReasoningEffort = "none" | "minimal" | "auto" | "low" | "medium" | "high" | "xhigh";
+export type NanoGptReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type NanoGptReasoningOutput = "hidden" | "native" | "visible";
 
 export type VscodeModelMetadata = {
@@ -452,11 +452,11 @@ export function buildNanoGptChatCompletionRequest(params: {
       ...(tools ? { tools } : {}),
       ...(tools && params.toolMode === "required" ? { tool_choice: "required" } : {}),
       ...(params.parallelToolCalls ? { parallel_tool_calls: true } : {}),
-      ...(params.reasoningEffort && params.reasoningEffort !== "auto"
+      ...(params.reasoningEffort
         ? { reasoning_effort: params.reasoningEffort }
         : {}),
-      ...(params.reasoningOutput
-        ? { reasoning: { exclude: params.reasoningOutput === "hidden" } }
+      ...(params.reasoningOutput === "hidden"
+        ? { reasoning: { exclude: true } }
         : {}),
     }),
   };

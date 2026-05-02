@@ -224,10 +224,9 @@ describe("NanoGPT VS Code provider core", () => {
 
     expect(JSON.parse(request.body)).toMatchObject({
       reasoning_effort: "high",
-      reasoning: {
-        exclude: false,
-      },
     });
+    // When reasoningOutput is "native" (default), no reasoning field is sent.
+    expect(JSON.parse(request.body)).not.toHaveProperty("reasoning");
   });
 
   test("can request reasoning exclusion when reasoning output is hidden", () => {

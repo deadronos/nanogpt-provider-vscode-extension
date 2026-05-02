@@ -130,8 +130,8 @@ function getReasoningEffort(
     "xhigh",
   ];
 
-  if (value === "auto") {
-    return "auto";
+  if (value === "auto" || value === undefined) {
+    return undefined;
   }
 
   return validEfforts.includes(value as NanoGptReasoningEffort)
@@ -181,13 +181,16 @@ async function resolveApiKey(
  * Creates an `AbortSignal` that mirrors the VS Code cancellation token.
  * Aborts immediately if the token is already cancelled.
  */
-function createAbortSignal(token: vscode.CancellationToken): AbortSignal {
+function createAbortSignal(token: vscode.CancellationToken): { signal: AbortSignal; dispose(): void } {
   const controller = new AbortController();
   if (token.isCancellationRequested) {
     controller.abort();
   }
-  token.onCancellationRequested(() => controller.abort());
-  return controller.signal;
+  const disposable = token.onCancellationRequested(() => controller.abort());
+  return {
+    signal: controller.signal,
+    dispose: () => disposable.dispose(),
+  };
 }
 
 /**
@@ -325,12 +328,13 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     }
 
     const cacheKey = `${apiKey}|${routingMode}`;
+    const abortSignal = createAbortSignal(token);
     try {
       const models = await this.client.discoverModels({
         apiKey,
         routingMode,
         allowlist: allowlist.length > 0 ? allowlist : undefined,
-        signal: createAbortSignal(token),
+        signal: abortSignal.signal,
       });
       const result = models.length > 0 ? models : DEFAULT_MODELS;
       this.modelCache.set(cacheKey, result);
@@ -342,6 +346,8 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         );
       }
       return this.modelCache.get(cacheKey) ?? DEFAULT_MODELS;
+    } finally {
+      abortSignal.dispose();
     }
   }
 
@@ -374,34 +380,39 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     }
 
     const reasoningOutput = getReasoningOutput(options.configuration, options.modelOptions);
+    const abortSignal = createAbortSignal(token);
 
-    await this.client.streamChatCompletions({
-      apiKey,
-      modelId: model.id,
-      messages: toNanoGptMessages(toCoreMessages(messages)),
-      routingMode: getRoutingMode(options.configuration),
-      provider: getProvider(options.configuration),
-      maxTokens: options.modelOptions?.maxTokens,
-      tools: options.tools,
-      toolMode: toToolMode(options.toolMode),
-      reasoningEffort: getReasoningEffort(options.configuration, options.modelOptions),
-      reasoningOutput,
-      parallelToolCalls: model.internal?.parallelToolCalls,
-      signal: createAbortSignal(token),
-      onText: (text) => progress.report(new vscode.LanguageModelTextPart(text)),
-      onReasoning: (text) => {
-        const thinkingPart = createThinkingPart(text);
-        if (thinkingPart) {
-          progress.report(thinkingPart);
-        } else if (reasoningOutput === "visible") {
-          progress.report(new vscode.LanguageModelTextPart(text));
-        }
-      },
-      onToolCall: (toolCall) =>
-        progress.report(
-          new vscode.LanguageModelToolCallPart(toolCall.callId, toolCall.name, toolCall.input),
-        ),
-    });
+    try {
+      await this.client.streamChatCompletions({
+        apiKey,
+        modelId: model.id,
+        messages: toNanoGptMessages(toCoreMessages(messages)),
+        routingMode: getRoutingMode(options.configuration),
+        provider: getProvider(options.configuration),
+        maxTokens: options.modelOptions?.maxTokens,
+        tools: options.tools,
+        toolMode: toToolMode(options.toolMode),
+        reasoningEffort: getReasoningEffort(options.configuration, options.modelOptions),
+        reasoningOutput,
+        parallelToolCalls: model.internal?.parallelToolCalls,
+        signal: abortSignal.signal,
+        onText: (text) => progress.report(new vscode.LanguageModelTextPart(text)),
+        onReasoning: (text) => {
+          const thinkingPart = createThinkingPart(text);
+          if (thinkingPart) {
+            progress.report(thinkingPart);
+          } else if (reasoningOutput === "visible") {
+            progress.report(new vscode.LanguageModelTextPart(text));
+          }
+        },
+        onToolCall: (toolCall) =>
+          progress.report(
+            new vscode.LanguageModelToolCallPart(toolCall.callId, toolCall.name, toolCall.input),
+          ),
+      });
+    } finally {
+      abortSignal.dispose();
+    }
   }
 
   /**
