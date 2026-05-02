@@ -6,6 +6,10 @@ This lets you use supported NanoGPT models from inside VS Code Chat when your VS
 
 > This project is experimental and not affiliated with NanoGPT, Microsoft, GitHub, or Visual Studio Code.
 
+## Demo Screenshot
+![Demo screenshot showing NanoGPT models in the VS Code Chat model picker](image.png)
+
+
 ## What it does
 
 - Registers NanoGPT as a VS Code language model provider.

@@ -122,9 +122,12 @@
           "type": "string",
           "enum": [
             "auto",
+            "none",
+            "minimal",
             "low",
             "medium",
-            "high"
+            "high",
+            "xhigh"
           ],
           "default": "auto",
           "description": "Optional reasoning effort sent to reasoning-capable models."
