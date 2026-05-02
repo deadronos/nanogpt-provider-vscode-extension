@@ -178,6 +178,41 @@ describe("NanoGptClient", () => {
     expect(texts).toEqual([]);
   });
 
+  test("releases the response reader after streaming completes", async () => {
+    let released = false;
+    const reader = {
+      async read() {
+        return { done: true, value: undefined };
+      },
+      releaseLock() {
+        released = true;
+      },
+    };
+
+    const fetchImpl = async () =>
+      ({
+        ok: true,
+        status: 200,
+        body: {
+          getReader() {
+            return reader;
+          },
+        },
+      }) as Response;
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Hi" }],
+      routingMode: "subscription",
+      onText: () => {},
+    });
+
+    expect(released).toBe(true);
+  });
+
   test("discovers models via subscription endpoint", async () => {
     const fetchCalls: Array<[string | URL | Request, RequestInit | undefined]> = [];
     const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {

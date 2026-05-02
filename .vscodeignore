@@ -1,4 +1,12 @@
-src/**
+.github/
+.vscode/
+docs/
+src/
+test/
+AGENTS.md
+CLAUDE.md
+tsconfig.json
+vitest.config.tssrc/**
 test/**
 coverage/**
 node_modules/**

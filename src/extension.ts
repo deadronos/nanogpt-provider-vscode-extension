@@ -27,6 +27,9 @@ const DEFAULT_MODELS: VscodeModelMetadata[] = [
       toolCalling: false,
     },
     reasoning: true,
+    internal: {
+      parallelToolCalls: false,
+    },
     configurationSchema: buildModelConfigurationSchema(),
   },
 ];
@@ -194,6 +197,31 @@ function createAbortSignal(token: vscode.CancellationToken): { signal: AbortSign
 }
 
 /**
+ * Reads Prompt TSX parts when the API is available in the current VS Code
+ * build. Unsupported or non-string payloads are omitted.
+ */
+function getPromptTsxText(part: unknown): string | undefined {
+  const promptTsxCtor = (vscode as unknown as {
+    LanguageModelPromptTsxPart?: new (...args: never[]) => { value?: unknown };
+  }).LanguageModelPromptTsxPart;
+
+  if (!promptTsxCtor || !(part instanceof promptTsxCtor)) {
+    return undefined;
+  }
+
+  const value = (part as { value?: unknown }).value;
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string").join("");
+  }
+
+  return undefined;
+}
+
+/**
  * Converts VS Code's typed chat message parts into the generic
  * `VscodeLikePart` shape expected by {@link toNanoGptMessages}.
  */
@@ -209,6 +237,10 @@ function toCoreMessages(
       if (part instanceof vscode.LanguageModelDataPart) {
         return { data: part.data, mimeType: part.mimeType };
       }
+      const promptTsxText = getPromptTsxText(part);
+      if (promptTsxText !== undefined) {
+        return { value: promptTsxText };
+      }
       if (part instanceof vscode.LanguageModelToolCallPart) {
         return { callId: part.callId, name: part.name, input: part.input };
       }
@@ -222,6 +254,10 @@ function toCoreMessages(
             if (contentPart instanceof vscode.LanguageModelDataPart) {
               return { data: contentPart.data, mimeType: contentPart.mimeType };
             }
+            const promptTsxText = getPromptTsxText(contentPart);
+            if (promptTsxText !== undefined) {
+              return { value: promptTsxText };
+            }
             return {};
           }),
         };
@@ -233,19 +269,13 @@ function toCoreMessages(
 
 /**
  * Maps the VS Code `LanguageModelChatToolMode` enum to the NanoGPT
- * tool-mode string (`"auto"` | `"required"`). Returns `undefined`
+ * tool-mode string (`"required"`). Returns `undefined`
  * when no mode is configured.
  */
 function toToolMode(
   toolMode: vscode.LanguageModelChatToolMode | undefined,
-): "auto" | "required" | undefined {
-  if (toolMode === vscode.LanguageModelChatToolMode.Required) {
-    return "required";
-  }
-  if (toolMode === vscode.LanguageModelChatToolMode.Auto) {
-    return "auto";
-  }
-  return undefined;
+): "required" | undefined {
+  return toolMode === vscode.LanguageModelChatToolMode.Required ? "required" : undefined;
 }
 
 /**

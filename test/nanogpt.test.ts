@@ -37,6 +37,17 @@ describe("NanoGPT VS Code provider core", () => {
     ]);
   });
 
+  test("maps numeric VS Code system roles to NanoGPT system messages", () => {
+    const messages = toNanoGptMessages([
+      {
+        role: 0,
+        content: [{ kind: "text", value: "Keep replies short" }],
+      },
+    ]);
+
+    expect(messages).toEqual([{ role: "system", content: "Keep replies short" }]);
+  });
+
   test("maps image data parts to OpenAI-compatible multimodal content", () => {
     const messages = toNanoGptMessages([
       {
@@ -224,9 +235,10 @@ describe("NanoGPT VS Code provider core", () => {
 
     expect(JSON.parse(request.body)).toMatchObject({
       reasoning_effort: "high",
+      reasoning: {
+        exclude: false,
+      },
     });
-    // When reasoningOutput is "native" (default), no reasoning field is sent.
-    expect(JSON.parse(request.body)).not.toHaveProperty("reasoning");
   });
 
   test("can request reasoning exclusion when reasoning output is hidden", () => {

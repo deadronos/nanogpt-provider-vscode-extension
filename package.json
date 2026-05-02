@@ -3,21 +3,35 @@
   "displayName": "NanoGPT Provider for VS Code",
   "description": "Bring NanoGPT models to VS Code and Copilot Chat as a language model provider.",
   "version": "0.0.2",
-  "repository": {"url": "https://github.com/deadronos/nanogpt-provider-vscode-extension"},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deadronos/nanogpt-provider-vscode-extension"
+  },
   "author": {"name": "deadronos"},
   "readme": "README.md",
   "publisher": "deadronos",
   "license": "MIT",
+  "homepage": "https://github.com/deadronos/nanogpt-provider-vscode-extension#readme",
+  "bugs": {
+    "url": "https://github.com/deadronos/nanogpt-provider-vscode-extension/issues"
+  },
   "type": "module",
   "engines": {
     "vscode": "^1.105.0"
+  },
+  "extensionKind": [
+    "ui"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
   },
   "categories": [
     "AI"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:nanogpt.manage"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -42,6 +56,10 @@
                 "subscription",
                 "paygo"
               ],
+              "enumItemLabels": [
+                "Subscription",
+                "Pay as you go"
+              ],
               "default": "subscription",
               "description": "NanoGPT routing surface for chat completions."
             },
@@ -61,7 +79,17 @@
                 "high",
                 "xhigh"
               ],
+              "enumItemLabels": [
+                "Auto",
+                "None",
+                "Minimal",
+                "Low",
+                "Medium",
+                "High",
+                "Extra High"
+              ],
               "default": "auto",
+              "group": "navigation",
               "description": "Optional reasoning effort sent to reasoning-capable models."
             },
             "reasoningOutput": {
@@ -70,6 +98,11 @@
                 "native",
                 "hidden",
                 "visible"
+              ],
+              "enumItemLabels": [
+                "Native",
+                "Hidden",
+                "Visible fallback"
               ],
               "default": "native",
               "description": "Controls how streamed reasoning is surfaced. Native uses VS Code's thinking part when available; visible falls back to normal text."
@@ -147,6 +180,7 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run build",
     "build": "tsc -p tsconfig.json",
     "compile": "tsc -p tsconfig.json",
     "test": "vitest run",

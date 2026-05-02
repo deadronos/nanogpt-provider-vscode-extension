@@ -15,6 +15,11 @@ import {
 
 type FetchLike = typeof fetch;
 
+type ManagedAbortSignal = {
+  signal: AbortSignal;
+  dispose(): void;
+};
+
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 
 /**
@@ -29,28 +34,37 @@ const STREAM_FETCH_TIMEOUT_MS = 5 * 60_000;
  * Combines an optional caller-provided abort signal with a fixed timeout,
  * returning a single signal that aborts when either triggers.
  *
- * Falls back to a plain timeout signal when no caller signal is given.
- * Uses manual {@link AbortController} composition because
- * `AbortSignal.any()` is not available in all Node.js versions
- * bundled with VS Code.
+ * Uses manual {@link AbortController} composition so the extension does not
+ * depend on newer `AbortSignal.timeout()` or `AbortSignal.any()` helpers.
  */
-function withTimeout(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
-  const timed = AbortSignal.timeout(timeoutMs);
-  if (!signal) {
-    return timed;
+function withTimeout(signal: AbortSignal | undefined, timeoutMs: number): ManagedAbortSignal {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort(new DOMException("The operation timed out.", "TimeoutError"));
+  }, timeoutMs);
+
+  if (signal) {
+    const onAbort = () => controller.abort((signal as AbortSignal & { reason?: unknown }).reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      controller.abort((signal as AbortSignal & { reason?: unknown }).reason);
+    }
+
+    return {
+      signal: controller.signal,
+      dispose() {
+        clearTimeout(timeoutId);
+        signal.removeEventListener("abort", onAbort);
+      },
+    };
   }
 
-  const controller = new AbortController();
-  const onAbort = () => controller.abort((signal as AbortSignal & { reason?: unknown }).reason);
-  signal.addEventListener("abort", onAbort, { once: true });
-  timed.addEventListener("abort", () => controller.abort(timed.reason), { once: true });
-  if (signal.aborted) {
-    controller.abort((signal as AbortSignal & { reason?: unknown }).reason);
-  }
-  if (timed.aborted) {
-    controller.abort(timed.reason);
-  }
-  return controller.signal;
+  return {
+    signal: controller.signal,
+    dispose() {
+      clearTimeout(timeoutId);
+    },
+  };
 }
 
 /**
@@ -99,26 +113,32 @@ export class NanoGptClient {
     const url = new URL(`${baseUrl}/models`);
     url.searchParams.set("detailed", "true");
 
-    const response = await this.fetchImpl(url, {
-      headers: {
-        Authorization: `Bearer ${params.apiKey}`,
-        Accept: "application/json",
-      },
-      signal: withTimeout(params.signal, DEFAULT_FETCH_TIMEOUT_MS),
-    });
+    const timeoutSignal = withTimeout(params.signal, DEFAULT_FETCH_TIMEOUT_MS);
 
-    if (!response.ok) {
-      throw new Error("NanoGPT model discovery failed with HTTP " + response.status);
+    try {
+      const response = await this.fetchImpl(url, {
+        headers: {
+          Authorization: `Bearer ${params.apiKey}`,
+          Accept: "application/json",
+        },
+        signal: timeoutSignal.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error("NanoGPT model discovery failed with HTTP " + response.status);
+      }
+
+      const payload = (await response.json()) as unknown;
+      const entries = Array.isArray(payload)
+        ? payload
+        : payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown }).data)
+          ? (payload as { data: unknown[] }).data
+          : [];
+
+      return mapNanoGptModelsToVscode(entries, params.allowlist);
+    } finally {
+      timeoutSignal.dispose();
     }
-
-    const payload = (await response.json()) as unknown;
-    const entries = Array.isArray(payload)
-      ? payload
-      : payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown }).data)
-        ? (payload as { data: unknown[] }).data
-        : [];
-
-    return mapNanoGptModelsToVscode(entries, params.allowlist);
   }
 
   /**
@@ -177,50 +197,61 @@ export class NanoGptClient {
       reasoningOutput: params.reasoningOutput,
       parallelToolCalls: params.parallelToolCalls,
     });
-    const response = await this.fetchImpl(request.url, {
-      method: "POST",
-      headers: request.headers,
-      body: request.body,
-      signal: withTimeout(params.signal, STREAM_FETCH_TIMEOUT_MS),
-    });
 
-    if (!response.ok) {
-      let message = "NanoGPT chat request failed with HTTP " + response.status;
-      try {
-        const body = await response.json() as { error?: { message?: string; code?: string; type?: string } };
-        if (body?.error?.message) {
-          message = "[NanoGPT] " + body.error.message + (body.error.type ? " (" + body.error.type + ")" : "") + (body.error.code ? " [" + body.error.code + "]" : "");
+    const timeoutSignal = withTimeout(params.signal, STREAM_FETCH_TIMEOUT_MS);
+
+    try {
+      const response = await this.fetchImpl(request.url, {
+        method: "POST",
+        headers: request.headers,
+        body: request.body,
+        signal: timeoutSignal.signal,
+      });
+
+      if (!response.ok) {
+        let message = "NanoGPT chat request failed with HTTP " + response.status;
+        try {
+          const body = await response.json() as { error?: { message?: string; code?: string; type?: string } };
+          if (body?.error?.message) {
+            message = "[NanoGPT] " + body.error.message + (body.error.type ? " (" + body.error.type + ")" : "") + (body.error.code ? " [" + body.error.code + "]" : "");
+          }
+        } catch {
+          // Use the default message if the body is not JSON.
         }
-      } catch {
-        // Use the default message if the body is not JSON.
-      }
-      throw new Error(message);
-    }
-
-    if (!response.body) {
-      return;
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    const parser = new NanoGptSseParser();
-    let buffer = "";
-
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
+        throw new Error(message);
       }
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() ?? "";
+      if (!response.body) {
+        return;
+      }
 
-      this.emitParts(parser.acceptLines(lines), params);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const parser = new NanoGptSseParser();
+      let buffer = "";
+
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop() ?? "";
+
+          this.emitParts(parser.acceptLines(lines), params);
+        }
+
+        buffer += decoder.decode();
+        this.emitParts(parser.acceptLines(buffer.split(/\r?\n/)), params);
+      } finally {
+        reader.releaseLock();
+      }
+    } finally {
+      timeoutSignal.dispose();
     }
-
-    buffer += decoder.decode();
-    this.emitParts(parser.acceptLines(buffer.split(/\r?\n/)), params);
   }
 
   /**
