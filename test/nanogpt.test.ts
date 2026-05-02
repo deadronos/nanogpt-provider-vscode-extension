@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { NanoGptClient } from "../src/client.js";
 import {
+  buildModelConfigurationSchema,
   buildNanoGptChatCompletionRequest,
   collectSseResponseParts,
   collectSseTextDeltas,
@@ -529,5 +533,23 @@ describe("NanoGPT VS Code provider core", () => {
         tools: [hugeTool],
       }),
     ).toThrow("exceeds the 200 KB limit");
+  });
+
+  test("buildModelConfigurationSchema properties match package.json languageModelChatProviders contribution", () => {
+    // Guards against manual drift between the programmatic schema returned by
+    // buildModelConfigurationSchema() and the static copy in package.json's
+    // languageModelChatProviders[0].configuration.properties.
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json"), "utf8")) as {
+      contributes: {
+        languageModelChatProviders: Array<{
+          configuration: { properties: Record<string, unknown> };
+        }>;
+      };
+    };
+    const pkgProps = pkg.contributes.languageModelChatProviders[0]!.configuration.properties;
+    const schemaProps = buildModelConfigurationSchema().properties;
+
+    expect(Object.keys(schemaProps).sort()).toEqual(Object.keys(pkgProps).sort());
   });
 });

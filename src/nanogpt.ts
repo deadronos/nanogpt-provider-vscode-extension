@@ -543,20 +543,26 @@ export class NanoGptSseParser {
             parts.push({ type: "text", text: content });
           }
 
-          for (const reasoning of [
+          // Take the first non-empty reasoning field per chunk. Providers vary
+          // in which field they use; consuming only the first prevents duplicate
+          // output when a single delta populates more than one of these fields.
+          const reasoningText = [
             choice.delta?.reasoning,
             choice.delta?.reasoning_content,
             choice.delta?.thinking,
-          ]) {
-            if (typeof reasoning === "string" && reasoning.length > 0) {
-              parts.push({ type: "reasoning", text: reasoning });
-            }
+          ].find((r): r is string => typeof r === "string" && r.length > 0);
+          if (reasoningText !== undefined) {
+            parts.push({ type: "reasoning", text: reasoningText });
           }
 
           for (const toolCall of choice.delta?.tool_calls ?? []) {
-            const index = isPositiveNumber(toolCall.index) ? toolCall.index : this.lastSeenIndex;
-            if (isPositiveNumber(toolCall.index)) {
-              this.lastSeenIndex = toolCall.index;
+            // isPositiveNumber requires > 0, so index 0 must be handled separately.
+            const rawIndex = toolCall.index;
+            const hasIndex =
+              typeof rawIndex === "number" && Number.isFinite(rawIndex) && rawIndex >= 0;
+            const index = hasIndex ? rawIndex : this.lastSeenIndex;
+            if (hasIndex) {
+              this.lastSeenIndex = rawIndex;
             }
 
             const pending = this.toolCalls.get(index) ?? { id: "", name: "", arguments: "" };

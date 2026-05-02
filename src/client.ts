@@ -16,6 +16,14 @@ type FetchLike = typeof fetch;
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 
 /**
+ * Generous timeout for the full SSE lifetime of a streaming chat completion.
+ * Streaming responses for long outputs can take several minutes; 30 s is far
+ * too short. This acts only as a safety-net for truly hung connections —
+ * normal cancellation is handled by the VS Code CancellationToken.
+ */
+const STREAM_FETCH_TIMEOUT_MS = 5 * 60_000;
+
+/**
  * Combines an optional caller-provided abort signal with a fixed timeout,
  * returning a single signal that aborts when either triggers.
  *
@@ -173,7 +181,7 @@ export class NanoGptClient {
       method: "POST",
       headers: request.headers,
       body: request.body,
-      signal: withTimeout(params.signal, DEFAULT_FETCH_TIMEOUT_MS),
+      signal: withTimeout(params.signal, STREAM_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {

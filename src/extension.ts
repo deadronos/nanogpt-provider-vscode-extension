@@ -271,7 +271,12 @@ function createThinkingPart(text: string): vscode.LanguageModelResponsePart | un
  * - Provide approximate token counts.
  */
 class NanoGptLanguageModelProvider implements ChatProviderApi {
-  private cachedModels: VscodeModelMetadata[] | undefined;
+  /**
+   * Cache keyed on `"${apiKey}|${routingMode}"` so that different API keys
+   * or routing surfaces each get an independent cached model list.
+   * `clearModelCache()` flushes all entries.
+   */
+  private readonly modelCache = new Map<string, VscodeModelMetadata[]>();
 
   /**
    * @param context - VS Code extension context for secret storage.
@@ -285,10 +290,14 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
   /**
    * Provides the list of available NanoGPT models to VS Code.
    *
-   * - Returns the allowlist-derived set when a model allowlist is configured.
-   * - Falls back to a default model when no API key is available.
-   * - Discovers live models from NanoGPT when an API key is configured.
-   * - Caches the result and falls back to the cache on discovery failure.
+   * - When both an API key and an allowlist are configured, discovers models
+   *   from NanoGPT and filters the result to the allowlisted IDs so that
+   *   accurate capability metadata is returned.
+   * - When an allowlist is configured but no API key is available, returns
+   *   capability stubs for the allowlisted IDs as a fallback.
+   * - Falls back to DEFAULT_MODELS when no API key is configured.
+   * - Caches discovered results per `apiKey + routingMode` and falls back to
+   *   the per-key cache on discovery failure.
    */
   async provideLanguageModelChatInformation(
     options: { silent: boolean; configuration?: ProviderConfiguration },
@@ -296,40 +305,43 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
   ): Promise<VscodeModelMetadata[]> {
     const apiKey = await resolveApiKey(this.context, options.configuration);
     const allowlist = getModelAllowlist(options.configuration);
+    const routingMode = getRoutingMode(options.configuration);
 
-    if (allowlist.length > 0) {
-      const models = allowlist.map((id) => ({
+    if (allowlist.length > 0 && !apiKey) {
+      // No API key — return capability stubs for the allowlisted IDs.
+      return allowlist.map((id) => ({
         ...DEFAULT_MODELS[0],
         id,
         name: id,
         tooltip: `NanoGPT model ${id}`,
       }));
-      this.cachedModels = models;
-      return models;
     }
 
     if (!apiKey) {
       if (!options.silent) {
         await vscode.commands.executeCommand("nanogpt.manage");
       }
-      return this.cachedModels ?? DEFAULT_MODELS;
+      return this.modelCache.get(`|${routingMode}`) ?? DEFAULT_MODELS;
     }
 
+    const cacheKey = `${apiKey}|${routingMode}`;
     try {
       const models = await this.client.discoverModels({
         apiKey,
-        routingMode: getRoutingMode(options.configuration),
+        routingMode,
+        allowlist: allowlist.length > 0 ? allowlist : undefined,
         signal: createAbortSignal(token),
       });
-      this.cachedModels = models.length > 0 ? models : DEFAULT_MODELS;
-      return this.cachedModels;
+      const result = models.length > 0 ? models : DEFAULT_MODELS;
+      this.modelCache.set(cacheKey, result);
+      return result;
     } catch (err) {
       if (!options.silent) {
         void vscode.window.showWarningMessage(
           `NanoGPT model discovery failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-      return this.cachedModels ?? DEFAULT_MODELS;
+      return this.modelCache.get(cacheKey) ?? DEFAULT_MODELS;
     }
   }
 
@@ -409,11 +421,11 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
   }
 
   /**
-   * Clears the cached model list so the next discovery call fetches
-   * fresh data from NanoGPT.
+   * Clears the entire model cache so the next discovery call fetches
+   * fresh data from NanoGPT for all API keys and routing modes.
    */
   clearModelCache(): void {
-    this.cachedModels = undefined;
+    this.modelCache.clear();
   }
 }
 
