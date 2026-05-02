@@ -722,12 +722,14 @@ export function mapNanoGptModelsToVscode(
   allowlist: readonly string[] = [],
 ): VscodeModelMetadata[] {
   const allowed = new Set(allowlist.map((id) => id.trim()).filter(Boolean));
+  const seen = new Set<string>();
 
   return entries.flatMap((entry) => {
     const id = String(entry.canonicalId ?? entry.id ?? "").trim();
-    if (!id || (allowed.size > 0 && !allowed.has(id))) {
+    if (!id || (allowed.size > 0 && !allowed.has(id)) || seen.has(id)) {
       return [];
     }
+    seen.add(id);
 
     const capabilities = entry.capabilities ?? {};
     const reasoning = Boolean(capabilities.reasoning ?? entry.reasoning);
