@@ -17,15 +17,32 @@ At runtime, the extension translates between three worlds:
 ```mermaid
 flowchart LR
     VSCode[VS Code Chat Provider APIs]
-    Extension[src/extension.ts\nVS Code orchestration]
-    Client[src/client.ts\nHTTP client + SSE streaming]
-    Core[src/nanogpt.ts\nPure transforms + schemas]
+    Extension[src/extension.ts\nProvider + activation]
+    Config[src/config.ts\nConfig resolution]
+    VscMsg[src/vscode-messaging.ts\nMessage compat]
+    Logging[src/logging.ts\nLogger]
+    Client[src/client.ts\nHTTP client + SSE]
+    Utils[src/utils.ts\nShared helpers]
+    NanoGptCore[src/nanogpt.ts\nBarrel + models/schema]
+    NanoGptTypes[src/nanogpt-types.ts\nConstants + types]
+    NanoGptMsg[src/nanogpt-message.ts\nMessage conversion]
+    NanoGptReq[src/nanogpt-request.ts\nRequest builder]
+    NanoGptParser[src/nanogpt-parser.ts\nSSE parser]
     NanoGPT[NanoGPT API\n/models + /chat/completions]
 
     VSCode --> Extension
+    Extension --> Config
+    Extension --> VscMsg
+    Extension --> Logging
     Extension --> Client
-    Extension --> Core
-    Client --> Core
+    Extension --> NanoGptCore
+    Client --> NanoGptCore
+    Client --> Utils
+    NanoGptCore --> NanoGptTypes
+    NanoGptCore --> NanoGptMsg
+    NanoGptCore --> NanoGptReq
+    NanoGptCore --> NanoGptParser
+    NanoGptCore --> Utils
     Client --> NanoGPT
     NanoGPT --> Client
     Client --> Extension
@@ -34,45 +51,55 @@ flowchart LR
 
 ## Architectural Boundaries
 
-### `src/extension.ts`
+### VS Code Integration Layer
 
-This file is the only place that should depend on VS Code runtime APIs.
+#### `src/extension.ts`
+
+This file is the only place that should depend on VS Code runtime APIs for provider lifecycle.
 
 Responsibilities:
 
 - Registers the language model chat provider under vendor id `nanogpt`.
-- Registers commands:
-  - `nanogpt.manage`
-  - `nanogpt.refreshModels`
-- Resolves configuration from:
-  - provider configuration
-  - workspace settings
-  - secret storage
-  - environment fallback
-- Bridges VS Code request message parts into the core `VscodeLikePart` format.
-- Converts NanoGPT responses into VS Code response parts.
-- Owns provider-level logging through the `NanoGPT` Output channel.
-- Maintains per-key/per-routing-mode model cache.
+- Registers commands: `nanogpt.manage`, `nanogpt.refreshModels`.
+- Owns the `NanoGptLanguageModelProvider` class with model cache, discovery, chat streaming, and token counting.
+- Bridges VS Code `CancellationToken` to `AbortSignal` via `createAbortSignal`.
 
-Notable implementation details:
+#### `src/config.ts`
 
-- The `NanoGPT` Output channel is created with `createOutputChannel(name, { log: true })`.
-- Verbose diagnostics are gated by `nanogpt.verboseLogging`.
-- Provider logic treats the absence of an API key as a recoverable runtime state and falls back to default or allowlisted models.
-- `LanguageModelPromptTsxPart` is handled defensively via runtime feature detection.
+Responsibilities:
 
-### `src/client.ts`
+- Exports `DEFAULT_MODELS` fallback array.
+- Resolves all configuration from provider configuration, workspace settings, secret storage, and environment fallback.
+- Provides typed getters: `getRoutingMode`, `getProvider`, `getModelAllowlist`, `getReasoningEffort`, `getReasoningOutput`, `resolveApiKey`, `isVerboseLoggingEnabled`.
+
+#### `src/logging.ts`
+
+Responsibilities:
+
+- Creates a `NanoGptLogger` backed by the VS Code `LogOutputChannel`.
+- Gates verbose `trace`/`debug` levels on `nanogpt.verboseLogging`.
+
+#### `src/vscode-messaging.ts`
+
+Responsibilities:
+
+- Converts VS Code `LanguageModelChatRequestMessage` → `VscodeLikeMessage` via `toCoreMessages()`.
+- Maps `LanguageModelChatToolMode` via `toToolMode()`.
+- Creates `LanguageModelThinkingPart` via `createThinkingPart()` — with defensive runtime feature detection.
+- Handles `LanguageModelPromptTsxPart` via `getPromptTsxText()`.
+
+### Transport Layer
+
+#### `src/client.ts`
 
 This file owns network transport and stream handling.
 
 Responsibilities:
 
 - Builds outbound HTTP calls using `buildNanoGptChatCompletionRequest()` from the core layer.
-- Calls:
-  - `GET {baseUrl}/models?detailed=true`
-  - `POST {baseUrl}/chat/completions`
-- Composes timeouts with caller cancellation.
-- Reads streaming SSE responses.
+- Calls `GET {baseUrl}/models?detailed=true` and `POST {baseUrl}/chat/completions`.
+- Composes timeouts with caller cancellation (via `withTimeout` from `utils.ts`).
+- Reads streaming SSE responses using `NanoGptSseParser`.
 - Emits typed callbacks for text, reasoning, and tool calls.
 - Produces sanitized transport logs through an injected logger interface.
 
@@ -82,23 +109,65 @@ Key design constraints:
 - No direct knowledge of secret storage or workspace settings.
 - Logging is transport-focused and intentionally sanitized.
 
-### `src/nanogpt.ts`
+### Core Transformation Layer
 
-This file is the pure core of the repository.
+#### `src/nanogpt-types.ts`
 
-Responsibilities:
+Pure constants and type definitions — no I/O, no VS Code.
 
-- Defines internal transport and transformation types.
-- Converts VS Code-like messages into NanoGPT/OpenAI-compatible messages.
-- Builds chat-completion request URLs, headers, and bodies.
-- Maps raw model-discovery payloads to VS Code model metadata.
-- Builds the per-model configuration schema.
-- Parses SSE chunks into response parts.
-- Estimates token counts heuristically.
+Exports:
 
-Key property:
+- `NANOGPT_BASE_URL`, `NANOGPT_SUBSCRIPTION_BASE_URL`
+- All shared types: `NanoGptChatMessage`, `NanoGptRoutingMode`, `VscodeModelMetadata`, `NanoGptResponsePart`, `NanoGptRequest`, etc.
+- `resolveRole()` helper.
 
-- This layer should stay pure and deterministic. It does not depend on VS Code or on network I/O.
+#### `src/nanogpt-message.ts`
+
+Pure message and tool conversion — no I/O, no VS Code.
+
+Exports:
+
+- `toNanoGptMessages()` — converts `VscodeLikeMessage[]` → `NanoGptChatMessage[]`.
+- `toNanoGptTools()` — serializes tool definitions with 200 KB limit enforcement.
+- `getTextPartValue()`, `toNanoGptImagePart()`, `toToolCall()`, `toToolResultContent()`.
+
+#### `src/nanogpt-request.ts`
+
+Pure request builder — no I/O, no VS Code.
+
+Exports:
+
+- `buildNanoGptChatCompletionRequest()` — assembles URL, headers, and JSON body.
+
+#### `src/nanogpt-parser.ts`
+
+Pure SSE parser — no I/O, no VS Code.
+
+Exports:
+
+- `NanoGptSseParser` class — incremental SSE chunk parser with tool-call accumulation.
+- `collectSseResponseParts()`, `collectSseTextDeltas()`.
+
+#### `src/nanogpt.ts`
+
+Barrel module that re-exports from all sub-modules and provides:
+
+- `mapNanoGptModelsToVscode()` — maps raw NanoGPT model entries to VS Code metadata.
+- `buildModelConfigurationSchema()` — builds the per-model provider configuration schema.
+- `estimateTokenCount()` — approximate token counter.
+
+### Shared Utilities
+
+#### `src/utils.ts`
+
+Cross-cutting helpers not specific to any layer:
+
+- Type guards: `isPositiveNumber`, `isObject`
+- Encoding: `toBase64`
+- Logging formatting: `formatKeyValuePairs`, `formatRoleCounts`, `formatError`
+- HTTP/abort: `getHeader`, `withTimeout`, `ManagedAbortSignal`
+
+## Manifest-Level Architecture
 
 ## Manifest-Level Architecture
 

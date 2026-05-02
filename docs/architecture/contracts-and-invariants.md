@@ -4,42 +4,46 @@ This document lists the important implementation rules that future changes shoul
 
 ## 1. File Ownership Boundaries
 
-### `src/extension.ts`
+### VS Code Integration Layer (`src/extension.ts`, `src/config.ts`, `src/logging.ts`, `src/vscode-messaging.ts`)
 
-Must remain the only layer that directly depends on VS Code runtime APIs.
+`src/extension.ts` must remain the only layer that directly depends on VS Code runtime APIs for provider lifecycle. Config/messaging/logging modules also depend on VS Code but are separated by concern.
 
 Expected responsibilities:
 
-- provider registration
-- command registration
-- secret storage access
-- workspace configuration access
-- output channel creation
-- VS Code request/response part adaptation
+- provider registration (`extension.ts`)
+- command registration (`extension.ts`)
+- secret storage access (`config.ts`)
+- workspace configuration access (`config.ts`)
+- output channel creation (`logging.ts`)
+- VS Code request/response part adaptation (`vscode-messaging.ts`)
 
-### `src/client.ts`
+### Transport Layer (`src/client.ts`)
 
 Must remain free of VS Code imports.
 
 Expected responsibilities:
 
 - HTTP requests
-- timeout/cancellation composition
+- timeout/cancellation composition (via `utils.ts`)
 - SSE stream reading
 - low-level sanitized transport logging
 
-### `src/nanogpt.ts`
+### Core Transformation Layer (`src/nanogpt.ts`, `src/nanogpt-types.ts`, `src/nanogpt-message.ts`, `src/nanogpt-request.ts`, `src/nanogpt-parser.ts`)
 
 Must remain free of VS Code imports and network I/O.
 
 Expected responsibilities:
 
-- pure types
-- request builders
-- message transforms
-- model mapping
-- schema builders
-- SSE parsing helpers
+- pure types (`nanogpt-types.ts`)
+- request builders (`nanogpt-request.ts`)
+- message transforms (`nanogpt-message.ts`)
+- model mapping (`nanogpt.ts`)
+- schema builders (`nanogpt.ts`)
+- SSE parsing helpers (`nanogpt-parser.ts`)
+
+### Shared Utilities (`src/utils.ts`)
+
+Must remain free of VS Code imports. Contains cross-cutting helpers used by both transport and core layers.
 
 ## 2. ESM and Import Contract
 
@@ -233,17 +237,18 @@ Current notable manifest/runtime decisions:
 When changing this repository, verify all relevant items below.
 
 - If you add or change provider config fields, update:
-  - `src/nanogpt.ts`
-  - `package.json`
-  - tests in `test/nanogpt.test.ts`
+  - `src/nanogpt.ts` (type + schema)
+  - `src/config.ts` (validator)
+  - `package.json` (contribution schema)
+  - tests
 - If you change routing behavior, update:
   - `src/extension.ts`
   - `src/client.ts`
-  - `src/nanogpt.ts`
+  - `src/nanogpt-request.ts`
   - README/docs
 - If you change message translation, update:
-  - `src/extension.ts`
-  - `src/nanogpt.ts`
+  - `src/vscode-messaging.ts`
+  - `src/nanogpt-message.ts`
   - tests covering history and tool/result flows
 - If you change logging behavior, re-check sanitization invariants.
 - If you change client transport logic, rerun stream/cancellation tests.

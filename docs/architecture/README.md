@@ -12,14 +12,14 @@ This folder documents the current implementation of the NanoGPT VS Code provider
 
 ## Architecture Summary
 
-The extension is intentionally split into three implementation layers:
+The extension is intentionally split into three implementation layers, with sub-modules for finer responsibility isolation:
 
-1. `src/extension.ts`
+1. **VS Code integration layer** (`src/extension.ts`, `src/config.ts`, `src/logging.ts`, `src/vscode-messaging.ts`)
    Owns VS Code API integration, provider registration, configuration resolution, secret handling, request logging, and runtime orchestration.
-2. `src/client.ts`
+2. **Transport layer** (`src/client.ts`)
    Owns NanoGPT HTTP I/O, request execution, timeouts, SSE streaming, and transport-level logging hooks. It does not import VS Code.
-3. `src/nanogpt.ts`
-   Owns pure types, request builders, message transforms, schema generation, SSE parsing helpers, and model metadata mapping. It does not import VS Code.
+3. **Core transformation layer** (`src/nanogpt.ts`, `src/nanogpt-types.ts`, `src/nanogpt-message.ts`, `src/nanogpt-request.ts`, `src/nanogpt-parser.ts`)
+   Owns pure types, request builders, message transforms, schema generation, SSE parsing helpers, and model metadata mapping. None of the core modules import VS Code.
 
 That separation is not incidental. It is a core design constraint of the repository and is enforced by test structure and project guidance.
 
@@ -28,11 +28,23 @@ That separation is not incidental. It is a core design constraint of the reposit
 | File | Role |
 | --- | --- |
 | `package.json` | Declares the extension manifest, commands, provider contribution schema, workspace settings, runtime capabilities, and build/test scripts. |
-| `src/extension.ts` | Registers the provider, resolves config and secrets, creates the `NanoGPT` output channel, and bridges VS Code request/response types to the client/core layers. |
+| `src/extension.ts` | Provider class, activation, commands, abort-signal bridging. |
+| `src/config.ts` | Configuration resolution: API key, routing, provider, models, reasoning, logging. |
+| `src/logging.ts` | `NanoGPT` output channel and logger construction. |
+| `src/vscode-messaging.ts` | VS Code message-part compatibility (`toCoreMessages`, `toToolMode`, `createThinkingPart`). |
 | `src/client.ts` | Executes `GET /models` and `POST /chat/completions`, manages timeouts and cancellation, and streams SSE responses into typed callbacks. |
-| `src/nanogpt.ts` | Provides the pure request/message/schema/model mapping utilities used by both the client and tests. |
+| `src/utils.ts` | Shared cross-cutting helpers: abort/timeout composition, formatting, type guards. |
+| `src/nanogpt-types.ts` | API constants and all type definitions (`NanoGptChatMessage`, `VscodeModelMetadata`, etc.). |
+| `src/nanogpt-message.ts` | Message/part conversion and tool serialization (`toNanoGptMessages`, `toNanoGptTools`). |
+| `src/nanogpt-request.ts` | Request body/header builder (`buildNanoGptChatCompletionRequest`). |
+| `src/nanogpt-parser.ts` | SSE parser and collectors (`NanoGptSseParser`, `collectSseResponseParts`). |
+| `src/nanogpt.ts` | Barrel re-exports, `mapNanoGptModelsToVscode`, `buildModelConfigurationSchema`, `estimateTokenCount`. |
 | `test/client.test.ts` | Covers HTTP client behavior, error handling, stream parsing, reader release, and sanitized logging. |
-| `test/nanogpt.test.ts` | Covers request building, message conversion, SSE parsing helpers, schema coupling, and model metadata mapping. |
+| `test/nanogpt.test.ts` | Covers model mapping, schema coupling, and token estimation. |
+| `test/nanogpt-message.test.ts` | Covers message conversion and tool serialization. |
+| `test/nanogpt-request.test.ts` | Covers request building edge cases. |
+| `test/nanogpt-parser.test.ts` | Covers SSE parser and tool-call deltas. |
+| `test/utils.test.ts` | Covers shared utility functions. |
 
 ## Current Scope
 

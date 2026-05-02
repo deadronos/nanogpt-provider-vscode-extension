@@ -12,6 +12,7 @@ import {
   type VscodeLikeTool,
   type VscodeModelMetadata,
 } from "./nanogpt.js";
+import { getHeader, withTimeout, type ManagedAbortSignal } from "./utils.js";
 
 type FetchLike = typeof fetch;
 
@@ -31,11 +32,6 @@ const NOOP_LOGGER: NanoGptLogger = {
   error: () => {},
 };
 
-type ManagedAbortSignal = {
-  signal: AbortSignal;
-  dispose(): void;
-};
-
 const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
 
 /**
@@ -45,47 +41,6 @@ const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
  * normal cancellation is handled by the VS Code CancellationToken.
  */
 const STREAM_FETCH_TIMEOUT_MS = 5 * 60_000;
-
-function getHeader(response: Response, name: string): string {
-  return response.headers?.get?.(name) ?? "unknown";
-}
-
-/**
- * Combines an optional caller-provided abort signal with a fixed timeout,
- * returning a single signal that aborts when either triggers.
- *
- * Uses manual {@link AbortController} composition so the extension does not
- * depend on newer `AbortSignal.timeout()` or `AbortSignal.any()` helpers.
- */
-function withTimeout(signal: AbortSignal | undefined, timeoutMs: number): ManagedAbortSignal {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => {
-    controller.abort(new DOMException("The operation timed out.", "TimeoutError"));
-  }, timeoutMs);
-
-  if (signal) {
-    const onAbort = () => controller.abort((signal as AbortSignal & { reason?: unknown }).reason);
-    signal.addEventListener("abort", onAbort, { once: true });
-    if (signal.aborted) {
-      controller.abort((signal as AbortSignal & { reason?: unknown }).reason);
-    }
-
-    return {
-      signal: controller.signal,
-      dispose() {
-        clearTimeout(timeoutId);
-        signal.removeEventListener("abort", onAbort);
-      },
-    };
-  }
-
-  return {
-    signal: controller.signal,
-    dispose() {
-      clearTimeout(timeoutId);
-    },
-  };
-}
 
 /**
  * HTTP client for NanoGPT API endpoints.

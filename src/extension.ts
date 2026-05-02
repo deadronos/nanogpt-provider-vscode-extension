@@ -1,40 +1,23 @@
 import * as vscode from "vscode";
 import { NanoGptClient, type NanoGptLogger } from "./client.js";
+import { estimateTokenCount, toNanoGptMessages, type VscodeModelMetadata } from "./nanogpt.js";
 import {
-  buildModelConfigurationSchema,
-  estimateTokenCount,
-  toNanoGptMessages,
-  type NanoGptReasoningEffort,
-  type NanoGptReasoningOutput,
-  type NanoGptRoutingMode,
-  type VscodeModelMetadata,
-} from "./nanogpt.js";
+  DEFAULT_MODELS,
+  getModelAllowlist,
+  getProvider,
+  getReasoningEffort,
+  getReasoningOutput,
+  getRoutingMode,
+  resolveApiKey,
+  type ProviderConfiguration,
+} from "./config.js";
+import { createLogger, OUTPUT_CHANNEL_NAME } from "./logging.js";
+import { toCoreMessages, toToolMode, createThinkingPart } from "./vscode-messaging.js";
+import { formatKeyValuePairs, formatRoleCounts, formatError } from "./utils.js";
 
 const VENDOR_ID = "nanogpt";
 const SECRET_KEY = "nanogpt.apiKey";
-const OUTPUT_CHANNEL_NAME = "NanoGPT";
 const VERBOSE_LOGGING_SETTING = "verboseLogging";
-const DEFAULT_MODELS: VscodeModelMetadata[] = [
-  {
-    id: "gpt-5.4-mini",
-    name: "GPT-5.4 Mini",
-    family: "nanogpt",
-    version: "nano-gpt",
-    maxInputTokens: 167232,
-    maxOutputTokens: 32768,
-    detail: "NanoGPT",
-    tooltip: "NanoGPT model gpt-5.4-mini",
-    capabilities: {
-      imageInput: true,
-      toolCalling: false,
-    },
-    reasoning: true,
-    internal: {
-      parallelToolCalls: false,
-    },
-    configurationSchema: buildModelConfigurationSchema(),
-  },
-];
 
 type ChatProviderApi = {
   provideLanguageModelChatInformation(
@@ -60,15 +43,6 @@ type ChatProviderApi = {
   ): Promise<number>;
 };
 
-type ProviderConfiguration = {
-  apiKey?: unknown;
-  routingMode?: unknown;
-  provider?: unknown;
-  models?: unknown;
-  reasoningEffort?: unknown;
-  reasoningOutput?: unknown;
-};
-
 type MessageSummary = {
   messageCount: number;
   roleCounts: Record<string, number>;
@@ -77,12 +51,6 @@ type MessageSummary = {
   toolCallParts: number;
   toolResultParts: number;
 };
-
-function formatKeyValuePairs(values: Record<string, string | number | boolean>): string {
-  return Object.entries(values)
-    .map(([key, value]) => `${key}=${value}`)
-    .join(", ");
-}
 
 function summarizeMessages(
   messages: readonly vscode.LanguageModelChatRequestMessage[],
@@ -138,163 +106,8 @@ function summarizeTools(
   });
 }
 
-function formatRoleCounts(roleCounts: Record<string, number>): string {
-  if (Object.keys(roleCounts).length === 0) {
-    return "none";
-  }
-
-  return Object.entries(roleCounts)
-    .map(([role, count]) => `${role}:${count}`)
-    .join("|");
-}
-
-function formatError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
-}
-
-/**
- * Returns the `nanogpt` workspace configuration section.
- */
-function getConfig() {
-  return vscode.workspace.getConfiguration("nanogpt");
-}
-
 function isVerboseLoggingEnabled(): boolean {
-  return getConfig().get<boolean>(VERBOSE_LOGGING_SETTING, false);
-}
-
-function createLogger(output: vscode.LogOutputChannel): NanoGptLogger {
-  return {
-    trace(message) {
-      if (isVerboseLoggingEnabled()) {
-        output.trace(message);
-      }
-    },
-    debug(message) {
-      if (isVerboseLoggingEnabled()) {
-        output.debug(message);
-      }
-    },
-    info(message) {
-      output.info(message);
-    },
-    warn(message) {
-      output.warn(message);
-    },
-    error(message) {
-      output.error(message);
-    },
-  };
-}
-
-/**
- * Resolves the NanoGPT routing mode from provider configuration or
- * workspace settings. Defaults to `"subscription"`.
- */
-function getRoutingMode(providerConfiguration?: ProviderConfiguration): NanoGptRoutingMode {
-  const value =
-    typeof providerConfiguration?.routingMode === "string"
-      ? providerConfiguration.routingMode
-      : getConfig().get<string>("routingMode", "subscription");
-  return value === "paygo" ? "paygo" : "subscription";
-}
-
-/**
- * Resolves the optional upstream provider ID from provider configuration
- * or workspace settings. Returns an empty string when not configured.
- */
-function getProvider(providerConfiguration?: ProviderConfiguration): string {
-  return typeof providerConfiguration?.provider === "string"
-    ? providerConfiguration.provider
-    : getConfig().get<string>("provider", "");
-}
-
-/**
- * Resolves the model allowlist from provider configuration or workspace
- * settings. Returns an empty array when no allowlist is configured.
- */
-function getModelAllowlist(providerConfiguration?: ProviderConfiguration): string[] {
-  if (Array.isArray(providerConfiguration?.models)) {
-    return providerConfiguration.models.filter((model): model is string => typeof model === "string");
-  }
-
-  return getConfig().get<string[]>("models", []);
-}
-
-/**
- * Resolves the reasoning effort from model options, provider configuration,
- * or workspace settings. Validates against the known NanoGPT effort values.
- * Returns `undefined` when the configured value is invalid or unrecognised.
- */
-function getReasoningEffort(
-  providerConfiguration?: ProviderConfiguration,
-  modelOptions?: { readonly [name: string]: unknown },
-): NanoGptReasoningEffort | undefined {
-  const value =
-    typeof modelOptions?.reasoningEffort === "string"
-      ? modelOptions.reasoningEffort
-      : typeof providerConfiguration?.reasoningEffort === "string"
-        ? providerConfiguration.reasoningEffort
-        : getConfig().get<string>("reasoningEffort", "auto");
-
-  const validEfforts: NanoGptReasoningEffort[] = [
-    "none",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-  ];
-
-  if (value === "auto" || value === undefined) {
-    return undefined;
-  }
-
-  return validEfforts.includes(value as NanoGptReasoningEffort)
-    ? (value as NanoGptReasoningEffort)
-    : undefined;
-}
-
-/**
- * Resolves the reasoning output mode from model options, provider
- * configuration, or workspace settings. Validates against `"hidden"`,
- * `"visible"`, and `"native"`; defaults to `"native"` when unrecognised.
- */
-function getReasoningOutput(
-  providerConfiguration?: ProviderConfiguration,
-  modelOptions?: { readonly [name: string]: unknown },
-): NanoGptReasoningOutput {
-  const value =
-    typeof modelOptions?.reasoningOutput === "string"
-      ? modelOptions.reasoningOutput
-      : typeof providerConfiguration?.reasoningOutput === "string"
-        ? providerConfiguration.reasoningOutput
-        : getConfig().get<string>("reasoningOutput", "native");
-
-  return value === "hidden" || value === "visible" || value === "native" ? value : "native";
-}
-
-/**
- * Resolves the NanoGPT API key from available sources, in order of priority:
- * 1. Per-model provider configuration (from Chat: Manage Language Models)
- * 2. VS Code secret storage (set via NanoGPT: Manage API Key command)
- * 3. VS Code settings (nanogpt.apiKey — avoid checking this into Git)
- * 4. Environment variable NANOGPT_API_KEY (use with caution in dev-only contexts)
- */
-async function resolveApiKey(
-  context: vscode.ExtensionContext,
-  providerConfiguration?: ProviderConfiguration,
-): Promise<string | undefined> {
-  return (
-    (typeof providerConfiguration?.apiKey === "string" ? providerConfiguration.apiKey.trim() : "") ||
-    (await context.secrets.get(SECRET_KEY))?.trim() ||
-    getConfig().get<string>("apiKey", "").trim() ||
-    process.env.NANOGPT_API_KEY?.trim()
-  );
+  return vscode.workspace.getConfiguration("nanogpt").get<boolean>(VERBOSE_LOGGING_SETTING, false);
 }
 
 /**
@@ -311,105 +124,6 @@ function createAbortSignal(token: vscode.CancellationToken): { signal: AbortSign
     signal: controller.signal,
     dispose: () => disposable.dispose(),
   };
-}
-
-/**
- * Reads Prompt TSX parts when the API is available in the current VS Code
- * build. Unsupported or non-string payloads are omitted.
- */
-function getPromptTsxText(part: unknown): string | undefined {
-  const promptTsxCtor = (vscode as unknown as {
-    LanguageModelPromptTsxPart?: new (...args: never[]) => { value?: unknown };
-  }).LanguageModelPromptTsxPart;
-
-  if (!promptTsxCtor || !(part instanceof promptTsxCtor)) {
-    return undefined;
-  }
-
-  const value = (part as { value?: unknown }).value;
-  if (typeof value === "string") {
-    return value;
-  }
-
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string").join("");
-  }
-
-  return undefined;
-}
-
-/**
- * Converts VS Code's typed chat message parts into the generic
- * `VscodeLikePart` shape expected by {@link toNanoGptMessages}.
- */
-function toCoreMessages(
-  messages: readonly vscode.LanguageModelChatRequestMessage[],
-): Parameters<typeof toNanoGptMessages>[0] {
-  return messages.map((message) => ({
-    role: message.role,
-    content: message.content.map((part) => {
-      if (part instanceof vscode.LanguageModelTextPart) {
-        return { value: part.value };
-      }
-      if (part instanceof vscode.LanguageModelDataPart) {
-        return { data: part.data, mimeType: part.mimeType };
-      }
-      const promptTsxText = getPromptTsxText(part);
-      if (promptTsxText !== undefined) {
-        return { value: promptTsxText };
-      }
-      if (part instanceof vscode.LanguageModelToolCallPart) {
-        return { callId: part.callId, name: part.name, input: part.input };
-      }
-      if (part instanceof vscode.LanguageModelToolResultPart) {
-        return {
-          callId: part.callId,
-          content: part.content.map((contentPart) => {
-            if (contentPart instanceof vscode.LanguageModelTextPart) {
-              return { value: contentPart.value };
-            }
-            if (contentPart instanceof vscode.LanguageModelDataPart) {
-              return { data: contentPart.data, mimeType: contentPart.mimeType };
-            }
-            const promptTsxText = getPromptTsxText(contentPart);
-            if (promptTsxText !== undefined) {
-              return { value: promptTsxText };
-            }
-            return {};
-          }),
-        };
-      }
-      return {};
-    }),
-  }));
-}
-
-/**
- * Maps the VS Code `LanguageModelChatToolMode` enum to the NanoGPT
- * tool-mode string (`"required"`). Returns `undefined`
- * when no mode is configured.
- */
-function toToolMode(
-  toolMode: vscode.LanguageModelChatToolMode | undefined,
-): "required" | undefined {
-  return toolMode === vscode.LanguageModelChatToolMode.Required ? "required" : undefined;
-}
-
-/**
- * Creates a VS Code `LanguageModelThinkingPart` when the API is available
- * in the current VS Code build. Returns `undefined` on older builds that
- * lack thinking part support, allowing fallback to text-based reasoning.
- */
-function createThinkingPart(text: string): vscode.LanguageModelResponsePart | undefined {
-  const thinkingCtor = (vscode as unknown as {
-    LanguageModelThinkingPart?: new (
-      value: string | string[],
-      id?: string,
-      metadata?: { readonly [key: string]: unknown },
-    ) => vscode.LanguageModelResponsePart;
-  }).LanguageModelThinkingPart;
-
-  return thinkingCtor ? new thinkingCtor(text) : undefined;
 }
 
 /**

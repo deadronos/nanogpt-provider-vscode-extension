@@ -7,7 +7,9 @@
     "type": "git",
     "url": "https://github.com/deadronos/nanogpt-provider-vscode-extension"
   },
-  "author": {"name": "deadronos"},
+  "author": {
+    "name": "deadronos"
+  },
   "readme": "README.md",
   "publisher": "deadronos",
   "license": "MIT",
@@ -190,13 +192,18 @@
     "compile": "tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint src test",
     "package": "vsce package --no-dependencies --allow-missing-repository"
   },
   "devDependencies": {
+    "@stylistic/eslint-plugin-ts": "^4.4.1",
     "@types/node": "^24.6.0",
     "@types/vscode": "^1.105.0",
+    "@vitest/coverage-v8": "^4.1.5",
     "@vscode/vsce": "^3.9.1",
+    "eslint": "^10.3.0",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.1",
     "vitest": "^4.1.4"
   }
 }

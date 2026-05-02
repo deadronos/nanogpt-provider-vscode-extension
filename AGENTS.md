@@ -13,13 +13,21 @@ npm run package     # Bundle .vsix via vsce
 
 ## Architecture
 
-Three source files; keep concerns separated:
+Source files organized into three layers with focused modules:
 
-| File | Responsibility |
-| --- | --- |
-| `src/nanogpt.ts` | Pure types, transforms, and schema builders. No VS Code API, no I/O. |
-| `src/client.ts` | HTTP client: model discovery and streaming chat completions. No VS Code API. |
-| `src/extension.ts` | VS Code registration, lifecycle, secrets, configuration resolution. |
+| File | Layer | Responsibility |
+| --- | --- | --- |
+| `src/extension.ts` | VS Code | Provider class, activation, commands, abort-signal bridging |
+| `src/config.ts` | VS Code | Configuration resolution (API key, routing, models, reasoning) |
+| `src/logging.ts` | VS Code | Output channel and logger creation |
+| `src/vscode-messaging.ts` | VS Code | VS Code message-part compatibility (`toCoreMessages`, `toToolMode`, `createThinkingPart`) |
+| `src/client.ts` | Transport | HTTP client: model discovery and streaming chat completions. No VS Code API. |
+| `src/utils.ts` | Shared | Cross-cutting helpers (abort/timeout composition, formatting, type guards) |
+| `src/nanogpt-types.ts` | Core | API constants, type definitions, `resolveRole`. No VS Code API, no I/O. |
+| `src/nanogpt-message.ts` | Core | Message/part conversion, tool serialization. No VS Code API, no I/O. |
+| `src/nanogpt-request.ts` | Core | Request body/header builder. No VS Code API, no I/O. |
+| `src/nanogpt-parser.ts` | Core | SSE parser and collectors. No VS Code API, no I/O. |
+| `src/nanogpt.ts` | Core | Barrel re-exports, model mapping, schema builder, token estimation. No VS Code API, no I/O. |
 
 Tests live in `test/` and run under Vitest in plain Node — no VS Code APIs are available there.
 
@@ -33,7 +41,7 @@ Tests live in `test/` and run under Vitest in plain Node — no VS Code APIs are
 
 **`reasoningEffort: "auto"` is an extension-local sentinel** — It means "omit the field", not "send `auto` to NanoGPT". The seven actual values sent to the API are `none | minimal | low | medium | high | xhigh`.
 
-**Coupled schema changes** — When modifying `NanoGptReasoningEffort` or adding config options, update all four locations together: `src/nanogpt.ts` (type + schema), `src/extension.ts` (validator), `package.json` (contribution schema), and `test/nanogpt.test.ts`.
+**Coupled schema changes** — When modifying `NanoGptReasoningEffort` or adding config options, update all relevant locations together: `src/nanogpt-types.ts` (type), `src/nanogpt.ts` (schema), `src/config.ts` (validator), `package.json` (contribution schema), and tests.
 
 **`buildModelConfigurationSchema()`** — Must be called per model in `DEFAULT_MODELS` and in model discovery results so VS Code exposes per-provider config fields at both discovery and chat-response time.
 
