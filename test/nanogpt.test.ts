@@ -244,6 +244,48 @@ describe("NanoGPT VS Code provider core", () => {
     });
   });
 
+  test("X-Provider header appears only for paygo mode with a non-empty provider", () => {
+    const withProvider = buildNanoGptChatCompletionRequest({
+      apiKey: "test-key",
+      modelId: "moonshotai/kimi-k2.5",
+      messages: [{ role: "user", content: "Hi" }],
+      routingMode: "paygo",
+      provider: "openrouter",
+    });
+    expect(withProvider.headers["X-Provider"]).toBe("openrouter");
+
+    const emptyProvider = buildNanoGptChatCompletionRequest({
+      apiKey: "test-key",
+      modelId: "moonshotai/kimi-k2.5",
+      messages: [{ role: "user", content: "Hi" }],
+      routingMode: "paygo",
+      provider: "",
+    });
+    expect(emptyProvider.headers["X-Provider"]).toBeUndefined();
+
+    const subscription = buildNanoGptChatCompletionRequest({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Hi" }],
+      routingMode: "subscription",
+      provider: "openrouter",
+    });
+    expect(subscription.headers["X-Provider"]).toBeUndefined();
+  });
+
+  test("serializes all reasoning effort values: none, minimal, and xhigh", () => {
+    for (const effort of ["none", "minimal", "xhigh"] as const) {
+      const request = buildNanoGptChatCompletionRequest({
+        apiKey: "test-key",
+        modelId: "moonshotai/kimi-k2.5:thinking",
+        messages: [{ role: "user", content: "Think" }],
+        routingMode: "paygo",
+        reasoningEffort: effort,
+      });
+      expect(JSON.parse(request.body)).toMatchObject({ reasoning_effort: effort });
+    }
+  });
+
   test("extracts streamed text deltas from OpenAI-compatible SSE chunks", () => {
     const text = collectSseTextDeltas([
       'data: {"choices":[{"delta":{"content":"Hel"}}]}',
@@ -443,22 +485,32 @@ describe("NanoGPT VS Code provider core", () => {
     };
 
     const client = new NanoGptClient(fetchImpl as typeof fetch);
-    const models = await client.discoverModels({
+
+    // Paygo mode
+    const paygoModels = await client.discoverModels({
       apiKey: "test-key",
       routingMode: "paygo",
     });
-
-    expect(String(fetchCalls[0]?.[0])).toBe("https://nano-gpt.com/api/v1/models?detailed=true");
-    expect(models[0]).toMatchObject({
+    expect(String(fetchCalls[fetchCalls.length - 1]?.[0])).toBe(
+      "https://nano-gpt.com/api/v1/models?detailed=true",
+    );
+    expect(paygoModels[0]).toMatchObject({
       id: "moonshotai/kimi-k2.5:thinking",
       maxInputTokens: 253952,
       maxOutputTokens: 8192,
-      capabilities: {
-        imageInput: true,
-        toolCalling: true,
-      },
+      capabilities: { imageInput: true, toolCalling: true },
       reasoning: true,
     });
+
+    // Subscription mode
+    const subModels = await client.discoverModels({
+      apiKey: "test-key",
+      routingMode: "subscription",
+    });
+    expect(String(fetchCalls[fetchCalls.length - 1]?.[0])).toBe(
+      "https://nano-gpt.com/api/subscription/v1/models?detailed=true",
+    );
+    expect(subModels[0]?.id).toBe("moonshotai/kimi-k2.5:thinking");
   });
 
   test("rejects tool payloads exceeding the 200 KB NanoGPT limit", () => {
