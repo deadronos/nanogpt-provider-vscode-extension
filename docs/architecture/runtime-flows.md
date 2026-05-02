@@ -7,7 +7,7 @@ This document describes the main runtime flows implemented in the extension.
 When VS Code activates the extension:
 
 1. `activate(context)` runs in `src/extension.ts`.
-2. A `LogOutputChannel` named `NanoGPT` is created.
+2. A `LogOutputChannel` named `NanoGPT` is created via `src/logging.ts`.
 3. A shared logger is built on top of that channel.
 4. A `NanoGptClient` is created with the shared logger injected.
 5. A `NanoGptLanguageModelProvider` is created.
@@ -18,12 +18,12 @@ When VS Code activates the extension:
 sequenceDiagram
     participant VSCode
     participant Extension as activate()
-    participant Output as NanoGPT Output Channel
+    participant Logging as src/logging.ts
     participant Client as NanoGptClient
     participant Provider as NanoGptLanguageModelProvider
 
     VSCode->>Extension: activate(context)
-    Extension->>Output: createOutputChannel("NanoGPT", { log: true })
+    Extension->>Logging: createOutputChannel("NanoGPT")
     Extension->>Client: new NanoGptClient(fetch, logger)
     Extension->>Provider: new NanoGptLanguageModelProvider(context, client, logger)
     Extension->>VSCode: registerLanguageModelChatProvider("nanogpt", provider)
@@ -121,16 +121,18 @@ Chat execution is exposed through `provideLanguageModelChatResponse()`.
 sequenceDiagram
     participant VSCode
     participant Provider
-    participant Core as nanogpt.ts
+    participant VscMsg as src/vscode-messaging.ts
+    participant Core as src/nanogpt-message.ts
+    participant Req as src/nanogpt-request.ts
     participant Client
     participant NanoGPT
 
     VSCode->>Provider: provideLanguageModelChatResponse(model, messages, options)
-    Provider->>Provider: resolve config + api key
-    Provider->>Core: toCoreMessages(messages)
+    Provider->>Provider: resolve config + api key (src/config.ts)
+    Provider->>VscMsg: toCoreMessages(messages)
     Provider->>Core: toNanoGptMessages(coreMessages)
     Provider->>Client: streamChatCompletions(...)
-    Client->>Core: buildNanoGptChatCompletionRequest(...)
+    Client->>Req: buildNanoGptChatCompletionRequest(...)
     Client->>NanoGPT: POST /chat/completions (stream=true)
     loop SSE stream
         NanoGPT-->>Client: data: { choices: [...] }
