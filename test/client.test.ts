@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { NanoGptClient, type NanoGptLogger } from "../src/client.js";
 
 describe("NanoGptClient", () => {
@@ -346,5 +346,317 @@ describe("NanoGptClient", () => {
     });
 
     expect(models.map((m) => m.id)).toEqual(["a", "c"]);
+  });
+
+  // ── discoverModels edge cases ─────────────────────────────────────────────
+
+  test("discovers models from a flat array response body", async () => {
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify([
+          { id: "flat-model", name: "Flat Model", context_length: 50000, capabilities: {} },
+        ]),
+        { status: 200 },
+      );
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const models = await client.discoverModels({ apiKey: "test-key", routingMode: "paygo" });
+    expect(models[0]?.id).toBe("flat-model");
+  });
+
+  test("returns empty list when response payload has an unexpected shape", async () => {
+    const fetchImpl = async () =>
+      new Response(JSON.stringify({ unexpected: "shape" }), { status: 200 });
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const models = await client.discoverModels({ apiKey: "key", routingMode: "subscription" });
+    expect(models).toEqual([]);
+  });
+
+  test("throws when model discovery returns a non-OK status", async () => {
+    const fetchImpl = async () => new Response("Unauthorized", { status: 401 });
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    await expect(
+      client.discoverModels({ apiKey: "bad-key", routingMode: "subscription" }),
+    ).rejects.toThrow("NanoGPT model discovery failed with HTTP 401");
+  });
+
+  test("emits sanitized lifecycle logs for model discovery", async () => {
+    const { logger, entries } = createLoggerSink();
+    const fetchImpl = async () =>
+      new Response(JSON.stringify({ data: [] }), { status: 200 });
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    await client.discoverModels({
+      apiKey: "super-secret-key",
+      routingMode: "subscription",
+      requestId: "disc-1",
+    });
+    const log = entries.join("\n");
+    expect(log).toContain("[disc-1]");
+    expect(log).not.toContain("super-secret-key");
+  });
+
+  // ── streamChatCompletions error body edge cases ───────────────────────────
+
+  test("formats error message without type or code when those fields are absent", async () => {
+    const fetchImpl = async () =>
+      new Response(
+        JSON.stringify({ error: { message: "Rate limit exceeded" } }),
+        { status: 429, headers: { "Content-Type": "application/json" } },
+      );
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    await expect(
+      client.streamChatCompletions({
+        apiKey: "test-key",
+        modelId: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "Hi" }],
+        routingMode: "subscription",
+        onText: () => {},
+      }),
+    ).rejects.toThrow("[NanoGPT] Rate limit exceeded");
+  });
+
+  test("uses default HTTP error message when JSON error body lacks a message field", async () => {
+    const fetchImpl = async () =>
+      new Response(JSON.stringify({ error: {} }), {
+        status: 429,
+        headers: { "Content-Type": "application/json" },
+      });
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    await expect(
+      client.streamChatCompletions({
+        apiKey: "test-key",
+        modelId: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "Hi" }],
+        routingMode: "subscription",
+        onText: () => {},
+      }),
+    ).rejects.toThrow("NanoGPT chat request failed with HTTP 429");
+  });
+
+  // ── AbortSignal edge cases ────────────────────────────────────────────────
+
+  test("aborts immediately when the provided signal is already aborted before the call", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("pre-aborted"));
+
+    const fetchImpl = async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+      return new Response(createReadableStream([]), { status: 200 });
+    };
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    await expect(
+      client.streamChatCompletions({
+        apiKey: "test-key",
+        modelId: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "Hi" }],
+        routingMode: "subscription",
+        signal: controller.signal,
+        onText: () => {},
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("passes through caller abort signal on model discovery", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const fetchImpl = async (_input: string | URL | Request, init?: RequestInit) => {
+      if (init?.signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+      return new Response(JSON.stringify({ data: [] }), { status: 200 });
+    };
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    await expect(
+      client.discoverModels({
+        apiKey: "test-key",
+        routingMode: "subscription",
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow();
+  });
+
+  // ── logging edge cases ────────────────────────────────────────────────────
+
+  test("falls back to 'unknown' in logs when response has no content-type header", async () => {
+    const { logger, entries } = createLoggerSink();
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream(["data: [DONE]\n\n"]),
+        { status: 200 }, // no Content-Type header
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Hi" }],
+      routingMode: "subscription",
+      requestId: "hdr-test",
+      onText: () => {},
+    });
+
+    // The debug log for "chat response received" should fall back to "unknown"
+    // for content-type since no header was set.
+    const responseLog = entries.find(
+      (e) => e.includes("[hdr-test]") && e.includes("chat response received"),
+    );
+    expect(responseLog).toMatch(/contentType=unknown/);
+  });
+
+  test("processes SSE content remaining in the post-loop final buffer", async () => {
+    // When the last chunk has no trailing newline, [DONE] stays in the residual
+    // buffer after the main read loop and is flushed in the post-loop decoder step.
+    // This covers the for-loop body in the final buffer parse (the toolCallCount branch).
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          // Tool call delta with a trailing newline — processed inside main loop
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"fin","type":"function","function":{"name":"final_fn","arguments":"{}"}}]}}]}\n',
+          // [DONE] without trailing newline — stays in buffer for post-loop flush
+          "data: [DONE]",
+        ]),
+        { status: 200 },
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const toolCalls: Array<{ callId: string; name: string }> = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Call fn" }],
+      routingMode: "subscription",
+      onText: () => {},
+      onToolCall: (tc) => toolCalls.push(tc),
+    });
+
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({ callId: "fin", name: "final_fn" });
+  });
+
+  test("counts text parts emitted from the post-loop final buffer", async () => {
+    const { logger, entries } = createLoggerSink();
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          // Text delta without trailing newline — ends up in final buffer
+          'data: {"choices":[{"delta":{"content":"late"}}]}',
+        ]),
+        { status: 200 },
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const texts: string[] = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Hi" }],
+      routingMode: "subscription",
+      requestId: "buf-text",
+      onText: (t) => texts.push(t),
+    });
+
+    expect(texts).toEqual(["late"]);
+    // The trace log should reflect the text part counted in the post-loop step.
+    const traceLog = entries.find((e) => e.includes("[buf-text]") && e.includes("chat stream processed"));
+    expect(traceLog).toMatch(/textParts=1/);
+  });
+
+  test("counts reasoning parts emitted from the post-loop final buffer", async () => {
+    const { logger, entries } = createLoggerSink();
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          // Reasoning delta without trailing newline — ends up in final buffer
+          'data: {"choices":[{"delta":{"reasoning":"deep thought"}}]}',
+        ]),
+        { status: 200 },
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const reasonings: string[] = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Think" }],
+      routingMode: "subscription",
+      requestId: "buf-reasoning",
+      onText: () => {},
+      onReasoning: (r) => reasonings.push(r),
+    });
+
+    expect(reasonings).toEqual(["deep thought"]);
+    const traceLog = entries.find((e) => e.includes("[buf-reasoning]") && e.includes("chat stream processed"));
+    expect(traceLog).toMatch(/reasoningParts=1/);
+  });
+
+  test("aborts with TimeoutError when request exceeds the stream timeout", async () => {
+    // Covers the setTimeout callback body in withTimeout (the line that fires
+    // controller.abort with a TimeoutError DOMException).
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = (_input: string | URL | Request, init?: RequestInit) =>
+        new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("The operation timed out.", "TimeoutError")),
+          );
+        });
+
+      const clientPromise = new NanoGptClient(fetchImpl as typeof fetch).streamChatCompletions({
+        apiKey: "test-key",
+        modelId: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "Hi" }],
+        routingMode: "subscription",
+        onText: () => {},
+      });
+
+      // Attach the rejection handler BEFORE firing timers to avoid the
+      // "PromiseRejectionHandledWarning" that arises when a rejection briefly
+      // has no handler before we can assert on it.
+      const assertion = expect(clientPromise).rejects.toThrow("The operation timed out.");
+
+      // Fire all pending timers, including the 5-minute stream timeout.
+      await vi.runAllTimersAsync();
+
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("logs counts for reasoning and tool call parts", async () => {
+    const { logger, entries } = createLoggerSink();
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"reasoning":"thinking..."}}]}\n\n',
+          'data: {"choices":[{"delta":{"content":"answer"}}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+        { status: 200 },
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Think" }],
+      routingMode: "subscription",
+      requestId: "count-test",
+      onText: () => {},
+      onReasoning: () => {},
+    });
+
+    const traceLog = entries.find(
+      (e) => e.includes("[count-test]") && e.includes("chat stream processed"),
+    );
+    expect(traceLog).toMatch(/textParts=1/);
+    expect(traceLog).toMatch(/reasoningParts=1/);
   });
 });
