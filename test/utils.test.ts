@@ -36,7 +36,7 @@ describe("utils", () => {
     expect(isObject({ key: "value" })).toBe(true);
   });
 
-  test("isObject returns false for null, arrays, and primitives", () => {
+  test("isObject returns false for null and primitives, true for arrays", () => {
     expect(isObject(null)).toBe(false);
     expect(isObject([1, 2, 3])).toBe(true); // arrays are objects
     expect(isObject("string")).toBe(false);
