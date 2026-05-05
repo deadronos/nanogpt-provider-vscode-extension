@@ -92,6 +92,14 @@ describe("nanogpt-parser: SSE parser", () => {
     expect(parts).toEqual([{ type: "tool_call", callId: "call_1", name: "run", input: {} }]);
   });
 
+  test("falls back to empty object when tool call arguments parse to an array", () => {
+    const parts = collectSseResponseParts([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"run","arguments":"[1,2,3]"}}]}}]}',
+      "data: [DONE]",
+    ]);
+    expect(parts).toEqual([{ type: "tool_call", callId: "call_1", name: "run", input: {} }]);
+  });
+
   test("falls back to empty object when tool call arguments parse to a non-object", () => {
     const parts = collectSseResponseParts([
       'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"run","arguments":"42"}}]}}]}',

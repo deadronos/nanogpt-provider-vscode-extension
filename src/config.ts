@@ -7,8 +7,8 @@ import {
   type VscodeModelMetadata,
 } from "./nanogpt.js";
 
-const SECRET_KEY = "nanogpt.apiKey";
-const VERBOSE_LOGGING_SETTING = "verboseLogging";
+export const SECRET_KEY = "nanogpt.apiKey";
+export const VERBOSE_LOGGING_SETTING = "verboseLogging";
 
 export const DEFAULT_MODELS: VscodeModelMetadata[] = [
   {
