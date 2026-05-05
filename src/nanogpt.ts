@@ -136,6 +136,10 @@ export function mapNanoGptModelsToVscode(
 
     const capabilities = entry.capabilities ?? {};
     const reasoning = Boolean(capabilities.reasoning ?? entry.reasoning);
+    const family =
+      typeof entry.family === "string" && entry.family.trim() ? entry.family.trim() : id;
+    const version =
+      typeof entry.version === "string" && entry.version.trim() ? entry.version.trim() : id;
     const maxOutputTokens = isPositiveNumber(entry.max_output_tokens)
       ? entry.max_output_tokens
       : isPositiveNumber(entry.maxTokens)
@@ -151,8 +155,8 @@ export function mapNanoGptModelsToVscode(
       {
         id,
         name: String(entry.displayName ?? entry.name ?? id),
-        family: "nanogpt",
-        version: "nano-gpt",
+        family,
+        version,
         maxInputTokens: Math.max(1, contextWindow - maxOutputTokens),
         maxOutputTokens,
         detail: "NanoGPT",

@@ -25,8 +25,8 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
       {
         id: "gpt-5.4-mini",
         name: "GPT-5.4 Mini",
-        family: "nanogpt",
-        version: "nano-gpt",
+        family: "gpt-5.4-mini",
+        version: "gpt-5.4-mini",
         maxInputTokens: 167232,
         maxOutputTokens: 32768,
         detail: "NanoGPT",
@@ -258,6 +258,22 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
       ["model-a", "model-c"],
     );
     expect(models.map((m) => m.id)).toEqual(["model-a", "model-c"]);
+  });
+
+  test("prefers discovered family and version metadata when provided", () => {
+    const models = mapNanoGptModelsToVscode([
+      {
+        id: "moonshotai/kimi-k2.5:thinking",
+        name: "Kimi K2.5 Thinking",
+        family: "kimi-k2.5",
+        version: "thinking",
+      },
+    ]);
+
+    expect(models[0]).toMatchObject({
+      family: "kimi-k2.5",
+      version: "thinking",
+    });
   });
 
   test("adds 1024 tokens per image in message content", () => {

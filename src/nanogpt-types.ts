@@ -73,6 +73,8 @@ export type NanoGptModelEntry = {
   canonicalId?: unknown;
   name?: unknown;
   displayName?: unknown;
+  family?: unknown;
+  version?: unknown;
   context_length?: unknown;
   contextWindow?: unknown;
   max_output_tokens?: unknown;
