@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   isPositiveNumber,
   isObject,
@@ -36,9 +36,9 @@ describe("utils", () => {
     expect(isObject({ key: "value" })).toBe(true);
   });
 
-  test("isObject returns false for null and primitives, true for arrays", () => {
+  test("isObject returns false for null, primitives, and arrays", () => {
     expect(isObject(null)).toBe(false);
-    expect(isObject([1, 2, 3])).toBe(true); // arrays are objects
+    expect(isObject([1, 2, 3])).toBe(false);
     expect(isObject("string")).toBe(false);
     expect(isObject(42)).toBe(false);
     expect(isObject(undefined)).toBe(false);
@@ -103,11 +103,17 @@ describe("utils", () => {
     managed.dispose();
   });
 
-  test("withTimeout aborts when the timeout expires", async () => {
-    const managed = withTimeout(undefined, 1);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(managed.signal.aborted).toBe(true);
-    managed.dispose();
+  test("withTimeout aborts when the timeout expires", () => {
+    vi.useFakeTimers();
+    try {
+      const managed = withTimeout(undefined, 1000);
+      expect(managed.signal.aborted).toBe(false);
+      vi.advanceTimersByTime(1000);
+      expect(managed.signal.aborted).toBe(true);
+      managed.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("withTimeout aborts immediately when the caller signal is already aborted", () => {

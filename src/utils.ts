@@ -8,10 +8,10 @@ export function isPositiveNumber(value: unknown): value is number {
 }
 
 /**
- * Type guard: returns `true` when `value` is a non-null object.
+ * Type guard: returns `true` when `value` is a non-null, non-array object.
  */
 export function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

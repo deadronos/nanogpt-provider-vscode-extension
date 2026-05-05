@@ -8,7 +8,10 @@ import {
   getReasoningEffort,
   getReasoningOutput,
   getRoutingMode,
+  isVerboseLoggingEnabled,
   resolveApiKey,
+  SECRET_KEY,
+  VERBOSE_LOGGING_SETTING,
   type ProviderConfiguration,
 } from "./config.js";
 import { createLogger, OUTPUT_CHANNEL_NAME } from "./logging.js";
@@ -16,8 +19,6 @@ import { toCoreMessages, toToolMode, createThinkingPart } from "./vscode-messagi
 import { formatKeyValuePairs, formatRoleCounts, formatError } from "./utils.js";
 
 const VENDOR_ID = "nanogpt";
-const SECRET_KEY = "nanogpt.apiKey";
-const VERBOSE_LOGGING_SETTING = "verboseLogging";
 
 type ChatProviderApi = {
   provideLanguageModelChatInformation(
@@ -104,10 +105,6 @@ function summarizeTools(
     count: tools.length,
     names: tools.map((tool) => tool.name).join("|") || "none",
   });
-}
-
-function isVerboseLoggingEnabled(): boolean {
-  return vscode.workspace.getConfiguration("nanogpt").get<boolean>(VERBOSE_LOGGING_SETTING, false);
 }
 
 /**
@@ -307,7 +304,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     const reasoningOutput = getReasoningOutput(options.configuration, options.modelOptions);
     const reasoningEffort = getReasoningEffort(options.configuration, options.modelOptions);
     const routingMode = getRoutingMode(options.configuration);
-    const provider = getProvider(options.configuration).trim() || "default";
+    const provider = getProvider(options.configuration);
     const toolMode =
       options.toolMode === vscode.LanguageModelChatToolMode.Required
         ? "required"
@@ -355,7 +352,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         modelId: model.id,
         messages: toNanoGptMessages(toCoreMessages(messages)),
         routingMode,
-        provider: getProvider(options.configuration),
+        provider,
         maxTokens: options.modelOptions?.maxTokens,
         tools: options.tools,
         toolMode: toToolMode(options.toolMode),
