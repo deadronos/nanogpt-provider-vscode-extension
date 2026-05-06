@@ -87,6 +87,7 @@ export type NanoGptModelEntry = {
 
 export type NanoGptReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type NanoGptReasoningOutput = "hidden" | "native" | "visible";
+export type NanoGptTokenizer = "cl100k_base" | "o200k_base";
 
 export type VscodeModelMetadata = {
   id: string;
@@ -100,6 +101,8 @@ export type VscodeModelMetadata = {
   capabilities: {
     imageInput: boolean;
     toolCalling: boolean;
+    family?: string;
+    tokenizer?: NanoGptTokenizer;
   };
   reasoning: boolean;
   internal?: {

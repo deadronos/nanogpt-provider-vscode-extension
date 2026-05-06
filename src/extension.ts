@@ -208,6 +208,10 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         name: id,
         family: id,
         version: id,
+        capabilities: {
+          ...DEFAULT_MODELS[0].capabilities,
+          family: id,
+        },
         tooltip: `NanoGPT model ${id}`,
       }));
     }

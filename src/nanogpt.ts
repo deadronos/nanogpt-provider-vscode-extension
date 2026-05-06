@@ -19,6 +19,7 @@ export type {
   NanoGptModelEntry,
   NanoGptReasoningEffort,
   NanoGptReasoningOutput,
+  NanoGptTokenizer,
   VscodeModelMetadata,
   VscodeLikeTool,
   NanoGptResponsePart,
@@ -47,11 +48,32 @@ export {
 import { isPositiveNumber } from "./utils.js";
 import {
   type NanoGptModelEntry,
+  type NanoGptTokenizer,
   type VscodeLikeMessage,
   type VscodeModelMetadata,
   resolveRole,
 } from "./nanogpt-types.js";
 import { getTextPartValue, toNanoGptImagePart } from "./nanogpt-message.js";
+
+function inferTokenizerFromModelIdentity(
+  ...values: Array<string | undefined>
+): NanoGptTokenizer {
+  const normalized = values
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    /(\bgpt-4\b|\bgpt-4-\b|\bgpt-3\.5\b|\bgpt-3\.5-\b|\bgpt-35-turbo\b|\btext-davinci\b|\bcode-davinci\b|\bcode-cushman\b|\bdavinci\b|\bcurie\b|\bbabbage\b|\bada\b)/.test(
+      normalized,
+    ) &&
+    !/\bgpt-4o\b/.test(normalized)
+  ) {
+    return "cl100k_base";
+  }
+
+  return "o200k_base";
+}
 
 /**
  * Builds the per-model configuration schema for NanoGPT models.
@@ -140,6 +162,7 @@ export function mapNanoGptModelsToVscode(
       typeof entry.family === "string" && entry.family.trim() ? entry.family.trim() : id;
     const version =
       typeof entry.version === "string" && entry.version.trim() ? entry.version.trim() : id;
+    const tokenizer = inferTokenizerFromModelIdentity(id, family, String(entry.name ?? ""));
     const maxOutputTokens = isPositiveNumber(entry.max_output_tokens)
       ? entry.max_output_tokens
       : isPositiveNumber(entry.maxTokens)
@@ -166,6 +189,8 @@ export function mapNanoGptModelsToVscode(
           toolCalling: Boolean(
             capabilities.toolCalling ?? capabilities.tool_calling ?? entry.tool_calling,
           ),
+          family,
+          tokenizer,
         },
         reasoning,
         internal: {

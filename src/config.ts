@@ -23,6 +23,8 @@ export const DEFAULT_MODELS: VscodeModelMetadata[] = [
     capabilities: {
       imageInput: true,
       toolCalling: false,
+      family: "gpt-5.4-mini",
+      tokenizer: "o200k_base",
     },
     reasoning: true,
     internal: {
