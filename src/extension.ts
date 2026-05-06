@@ -53,6 +53,12 @@ type MessageSummary = {
   toolResultParts: number;
 };
 
+type RuntimeLanguageModelLike = vscode.LanguageModelChat & {
+  vendor?: unknown;
+  tokenizer?: unknown;
+  capabilities?: unknown;
+};
+
 function summarizeMessages(
   messages: readonly vscode.LanguageModelChatRequestMessage[],
 ): MessageSummary {
@@ -105,6 +111,57 @@ function summarizeTools(
     count: tools.length,
     names: tools.map((tool) => tool.name).join("|") || "none",
   });
+}
+
+function getRuntimeCapabilityValue(model: RuntimeLanguageModelLike, key: string): string {
+  const capabilities = model.capabilities;
+  if (!capabilities || typeof capabilities !== "object") {
+    return "undefined";
+  }
+
+  const value = (capabilities as Record<string, unknown>)[key];
+  return value === undefined ? "undefined" : String(value);
+}
+
+function summarizeRuntimeModel(model: RuntimeLanguageModelLike): string {
+  const capabilityKeys =
+    model.capabilities && typeof model.capabilities === "object"
+      ? Object.keys(model.capabilities as Record<string, unknown>).join("|") || "none"
+      : "none";
+
+  return formatKeyValuePairs({
+    id: model.id,
+    vendor: typeof model.vendor === "string" ? model.vendor : "unknown",
+    family: model.family,
+    version: model.version,
+    tokenizer: model.tokenizer === undefined ? "undefined" : String(model.tokenizer),
+    capabilityKeys,
+    capabilityFamily: getRuntimeCapabilityValue(model, "family"),
+    capabilityTokenizer: getRuntimeCapabilityValue(model, "tokenizer"),
+  });
+}
+
+async function logRuntimeModelResolution(logger: NanoGptLogger): Promise<void> {
+  try {
+    const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
+    logger.debug(`[runtime] resolved NanoGPT models (${formatKeyValuePairs({ count: models.length })})`);
+
+    for (const model of models.slice(0, 5)) {
+      let helloTokenCount = "error";
+
+      try {
+        helloTokenCount = String(await model.countTokens("hello"));
+      } catch (error) {
+        helloTokenCount = `error:${formatError(error)}`;
+      }
+
+      logger.debug(
+        `[runtime] selected model (${summarizeRuntimeModel(model as RuntimeLanguageModelLike)}, helloTokens=${helloTokenCount})`,
+      );
+    }
+  } catch (error) {
+    logger.warn(`[runtime] failed to resolve NanoGPT models: ${formatError(error)}`);
+  }
 }
 
 /**
@@ -468,6 +525,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   if (typeof lm.registerLanguageModelChatProvider === "function") {
     context.subscriptions.push(lm.registerLanguageModelChatProvider(VENDOR_ID, provider));
+    if (isVerboseLoggingEnabled()) {
+      void logRuntimeModelResolution(logger);
+    }
   } else {
     logger.warn("Language Model Chat Provider API is unavailable in this VS Code build");
     void vscode.window.showWarningMessage(
@@ -478,9 +538,11 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration(`nanogpt.${VERBOSE_LOGGING_SETTING}`)) {
-        logger.info(
-          `NanoGPT verbose logging ${isVerboseLoggingEnabled() ? "enabled" : "disabled"}`,
-        );
+        const verboseLoggingEnabled = isVerboseLoggingEnabled();
+        logger.info(`NanoGPT verbose logging ${verboseLoggingEnabled ? "enabled" : "disabled"}`);
+        if (verboseLoggingEnabled) {
+          void logRuntimeModelResolution(logger);
+        }
       }
     }),
     vscode.commands.registerCommand("nanogpt.manage", async () => {
