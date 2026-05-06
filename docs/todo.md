@@ -1,171 +1,78 @@
-# TODO: VS Code and NanoGPT Capability Alignment
+# Code Review TODO
 
-Date: 2026-05-02
-Purpose: Track follow-up work needed for the extension to match VS Code language model provider capabilities and NanoGPT's advertised chat/model capabilities.
+> Generated: 2026-05-06
 
-## Priority Guide
+This document tracks issues identified during code review of the NanoGPT Provider VS Code Extension.
 
-- P0: Required for correctness or a currently broken advertised capability.
-- P1: Important for matching NanoGPT and VS Code capability fidelity.
-- P2: Useful polish, diagnostics, or future-proofing.
-- P3: Nice-to-have if VS Code exposes better hooks later.
+---
 
-## P0: Required Correctness
+## Critical Issues
 
-- [x] Keep API key configuration available on both discovery and chat response paths.
-  - **Done (2026-05-02):** Added connection fields (`apiKey`, `routingMode`, `provider`) to per-model `configurationSchema` in `buildModelConfigurationSchema()`. Schema applied to all discovered and fallback models.
-  - Verify in an extension host with `Chat: Manage Language Models` after packaging/installing.
-  - Confirm a provider-configured key is available to `provideLanguageModelChatResponse`, not only `provideLanguageModelChatInformation`.
+- [ ] **[nanogpt-parser.ts:112]** Tool name accumulation bug — `pending.name += toolCall.function.name` concatenates name fragments across chunks instead of replacing. If a tool name is streamed in pieces (e.g., "get" → "Weather" → "For"), the name becomes "getWeatherFor" instead of the final value. Fix: change `+=` to `=`.
 
-- [x] Rebuild/package after config schema changes.
-  - **Done (2026-05-02):** Schema changes compiled and validated via `npm run build`.
+- [ ] **[client.ts:241-286]** SSE stream reader not cancelled on abort/timeout — when a user cancels or the timeout fires, the streaming loop breaks via `done: true` but `reader.cancel()` is never called. Add `reader.cancel()` in a finally block or check abort state and cancel proactively.
 
-- [x] Preserve NanoGPT model discovery as the source of truth whenever an API key is available.
-  - **Done (pre-existing):** `provideLanguageModelChatInformation` falls back to `DEFAULT_MODELS` only on error or no-key; discovered models replace the cache on success.
+- [ ] **[extension.ts:424]** `model.internal?.parallelToolCalls` returns `boolean | undefined`. The downstream logic handles this correctly (falsy skips the field), but the type annotation should be explicit to prevent future misuse.
 
-## P1: Chat Completion Alignment
+---
 
-- [x] Add `Accept: text/event-stream` to streaming chat requests.
-  - **Done (2026-05-02):** Added `Accept: "text/event-stream"` to headers in `buildNanoGptChatCompletionRequest()`. Test updated.
+## High Priority Issues
 
-- [x] Improve NanoGPT error reporting in chat requests.
-  - **Done (2026-05-02):** `NanoGptClient.streamChatCompletions()` now parses JSON error bodies and surfaces `error.message`, `error.type`, and `error.code` in the thrown error.
+- [ ] **[nanogpt-parser.ts:99-106]** Tool call `index === 0` edge case — when `index === 0`, `hasIndex` is true, but `lastSeenIndex` is set to `0` which happens to work for subsequent tool calls without an index. However, the logic is fragile and inconsistent with `isPositiveNumber` which explicitly excludes zero (`value > 0`). Consider clarifying or unifying the validation.
 
-- [ ] Decide whether to expose more chat request options through model configuration.
-  - Candidate options: `temperature`, `top_p`, `stop`, `seed`, `service_tier`.
-  - Avoid adding options that VS Code callers cannot naturally control or that would clutter the model picker.
-  - Keep provider defaults unless there is a clear VS Code workflow benefit.
+- [ ] **[nanogpt-message.ts:234]** `toNanoGptTools` returns `unknown[]` — loses type information. The return type should be explicitly typed as `Array<{ type: "function"; function: { name: string; description: string; parameters: object } }>`.
 
-- [ ] Decide whether structured output belongs in scope.
-  - NanoGPT advertises `response_format` and model `structured_output` capability.
-  - VS Code language model provider APIs may not expose a direct structured-output request contract.
-  - If unsupported by VS Code, document it as intentionally unavailable rather than silently ignoring the NanoGPT capability.
+- [ ] **[extension.ts:144-164]** `logRuntimeModelResolution` has an unhandled promise rejection path — the function has internal try/catch for `selectChatModels`, but errors thrown after the try/catch block (or in the `model.countTokens` call's outer scope) would propagate as unhandled rejections when called with `void`.
 
-## P1: Reasoning Alignment
+---
 
-- [x] Expand reasoning effort values or intentionally document the narrowed set.
-  - **Done (2026-05-02):** `NanoGptReasoningEffort` now includes all seven NanoGPT values: `"none"`, `"minimal"`, `"auto"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`. `auto` remains the extension-local sentinel that omits `reasoning_effort`.
+## Medium Priority Issues
 
-- [x] Update `NanoGptReasoningEffort`, configuration schemas, package contribution schema, and tests together.
-  - **Done (2026-05-02):** Updated in `src/nanogpt.ts` (type + schema), `src/extension.ts` (validator), `package.json` (contribution schema), and `test/nanogpt.test.ts` (assertion). Invalid values resolve to `undefined`.
+- [ ] **[nanogpt.ts + package.json]** Configuration schema duplicated — `buildModelConfigurationSchema()` in `src/nanogpt.ts` and the `languageModelChatProviders.configuration` object in `package.json` must be kept in sync manually. The documentation acknowledges this; consider a build step to generate `package.json` from the schema function, or at minimum add a test that compares the two schemas for parity.
 
-- [x] Confirm default reasoning output behavior.
-  - **Done (pre-existing confirmed correct):** `native` sends `reasoning: { exclude: false }`; `hidden` sends `reasoning: { exclude: true }`; `visible` omits the field so NanoGPT default applies.
+- [ ] **[nanogpt.ts:221]** Token count estimate has no upper bound — `Math.max(1, Math.ceil(text.length / 4) + imageCount * 1024)` can return very large values for extremely long inputs without sanity checking against model context limits.
 
-- [x] Keep parsing all common reasoning delta fields.
-  - **Done (pre-existing confirmed correct):** Parser handles `reasoning`, `reasoning_content`, and `thinking` from SSE deltas.
+- [ ] **[extension.ts:290]** Cache key includes full API key in memory — `cacheKey = \`${apiKey}|${routingMode}\`` stores the raw API key in a Map key. If the cache object is ever exposed (debugger, heap dump), this could leak credentials. Consider using a hash of the API key instead.
 
-- [x] Do not add legacy endpoint variants unless VS Code needs them.
-  - **Done (no-op):** Extension uses canonical endpoints only; legacy field-name parsing is already in place for compatibility.
+- [ ] **[extension.ts:76,122-123]** Multiple `as` type assertions bypass type safety — `(capabilities as Record<string, unknown>)[key]` and similar casts assume API shapes that could change. Add runtime validation or narrow the types to reduce reliance on unsafe casts.
 
-## P1: Tool Calling Alignment
+- [ ] **[extension.ts:541-542]** `isVerboseLoggingEnabled()` called twice in config change handler — minor inefficiency; first call result is stored but function is called again in the `if` condition.
 
-- [x] Map all VS Code tool modes that are actually exposed by the VS Code API.
-  - **Done (pre-existing):** `toToolMode()` maps `Required → "required"` and `Auto → "auto"`; unsupported `none` is intentionally omitted.
+---
 
-- [x] Add optional `parallel_tool_calls` support if VS Code can request or tolerate it.
-  - **Done (2026-05-02):** `parallelToolCalls?: boolean` plumbed through `buildNanoGptChatCompletionRequest()` → `NanoGptClient.streamChatCompletions()` → `NanoGptLanguageModelProvider`. Automatically set from `model.internal.parallelToolCalls` at chat time when the model discovery reports the capability.
+## Low Priority Issues
 
-- [x] Track `parallel_tool_calls` in internal model metadata.
-  - **Done (2026-05-02):** `NanoGptModelCapabilities.parallel_tool_calls` added; `VscodeModelMetadata.internal.parallelToolCalls` added; `mapNanoGptModelsToVscode()` copies the capability into internal metadata.
+- [ ] **[package.json:198-207]** DevDependencies use caret ranges (`^4.1.5`, etc.) — builds could use different versions over time. Consider pinning exact versions for reproducible CI.
 
-- [x] Add tests for multiple streamed tool calls.
-  - **Done (2026-05-02):** `extracts multiple indexed tool calls streamed in separate chunks` added. Uses `[DONE]` to flush; verifies stable ordering and parsed input.
+- [ ] **[.env.local]** Contains a real NanoGPT API key — file is in `.gitignore` but poses a risk if accidentally committed or shared. Ensure no secrets are committed and review `process.env.NANOGPT_API_KEY` fallback usage.
 
-- [x] Add tests for mixed content and tool-result messages.
-  - **Done (2026-05-02):** `toNanoGptMessages()` updated to preserve text content alongside tool result messages when both are present in the same VS Code message. Test added: `preserves text content alongside tool results in the same message`.
+- [ ] **[vscode-messaging.ts]** No dedicated test file — `createThinkingPart` and `getPromptTsxText` are tested indirectly through `nanogpt-message.test.ts`. Consider adding unit tests directly in `vscode-messaging.test.ts`.
 
-- [x] Add defensive handling for NanoGPT tool validation errors.
-  - **Done (2026-05-02):** `toNanoGptTools()` preflight-checks serialized tool payload size against the 200 KB limit using `TextEncoder`. Throws a descriptive error if exceeded. Test added: `rejects tool payloads exceeding the 200 KB NanoGPT limit`.
+- [ ] **[nanogpt-parser.ts:98-99]** Comment says "isPositiveNumber requires > 0" but `isPositiveNumber` is not actually used in the parser — the validation is inlined. This comment is misleading.
 
-## P1: Model Discovery and Routing Alignment
+---
 
-- [ ] Decide the paygo discovery strategy.
-  - Current paygo mode uses canonical `/api/v1/models`.
-  - NanoGPT also exposes `/api/paid/v1/models` for paid/extras.
-  - Options: keep canonical, switch paygo to paid-only, or merge canonical plus paid-only.
-  - Recommendation: keep canonical unless users report missing paid models, then add a discovery mode setting.
+## What Works Well
 
-- [ ] Consider unauthenticated model discovery for first-run UX.
-  - NanoGPT documents model-list authentication as optional.
-  - Current extension skips discovery and prompts for key when no key is available.
-  - First-run unauthenticated discovery could show the real catalog before key setup, while chat remains key-gated.
+- **Architecture:** Clean three-layer separation (VS Code integration → Transport → Core) with clear module responsibilities
+- **Type safety:** Extensive use of TypeScript types and type guards (`isObject`, `isPositiveNumber`)
+- **Test coverage:** 106 tests covering core functionality with good edge case coverage
+- **Error handling:** SSE parser gracefully handles malformed JSON; tool call parsing failures are recovered
+- **Security:** API keys properly redacted from logs; VS Code secret storage used correctly
+- **Schema validation:** Tool payload size validation (200 KB limit) prevents oversized requests
+- **Cancellation:** Proper abort signal bridging between VS Code tokens and fetch
+- **Documentation:** Architecture docs, AGENTS.md, and changelog are well maintained
 
-- [ ] Support provider discovery if replacing free-form provider config.
-  - NanoGPT documents provider selection discovery through provider endpoints.
-  - Current extension exposes `provider` as a free-form string and sends `X-Provider` only in paygo mode.
-  - A future picker would need provider discovery, caching, and failure states.
+---
 
-- [ ] Clarify routing settings in docs and settings descriptions.
-  - `subscription`: use `/api/subscription/v1` for models and chat completions.
-  - `paygo`: use `/api/v1` for models and chat completions.
-  - `provider`: only applies as `X-Provider` in paygo mode.
+## Schema Sync Reference
 
-## P1: Model Capability Fidelity
+When modifying `NanoGptReasoningEffort` or adding configuration options, update all locations:
 
-- [x] Extend NanoGPT model capability types.
-  - **Done (2026-05-02):** `NanoGptModelCapabilities.parallel_tool_calls` added; `VscodeModelMetadata` updated; `mapNanoGptModelsToVscode()` copies the field. `structured_output` and `pdf_upload` intentionally left as internal-only.
-
-- [x] Decide how to represent capabilities VS Code does not currently expose.
-  - **Done (2026-05-02):** `vision → imageInput`, `tool_calling → toolCalling`, `reasoning → reasoning` are VS Code-visible. `parallel_tool_calls` uses internal metadata. `structured_output` and `pdf_upload` are documented as intentionally unavailable until VS Code provides a hook.
-
-- [x] Do not advertise unsupported capability behavior to VS Code.
-  - **Done (pre-existing confirmed correct):** `pdf_upload` is never mapped to `imageInput`; `structured_output` has no request path.
-
-- [x] Add tests for capability mapping with all NanoGPT-documented fields.
-  - **Done (2026-05-02):** `maps all NanoGPT capability fields correctly, leaving internal-only fields off VS Code surface` added. Uses `as unknown as Parameters<...>` to include `structured_output` and `pdf_upload` which are not in the capabilities type but are intentionally omitted from VS Code mapping. Verifies vision→imageInput, tool_calling→toolCalling, reasoning→reasoning, parallel_tool_calls→internal.parallelToolCalls, and that structured_output/pdf_upload do not appear in VS Code capabilities.
-
-## P2: Naming, Shape, and Maintainability
-
-- [x] Rename `buildModelConfigurationSchema`.
-  - **Done (2026-05-02):** Renamed to `buildModelConfigurationSchema`. All call sites updated in `src/nanogpt.ts` (definition + `mapNanoGptModelsToVscode`), `src/extension.ts` (import + `DEFAULT_MODELS`). JSDoc added explaining the manual `package.json` sync requirement.
-
-- [x] Consolidate duplicated configuration schemas.
-  - **Done (2026-05-02):** JSDoc on `buildModelConfigurationSchema()` documents that `package.json` `languageModelChatProviders` is a manual mirror and must be kept in sync by hand. Recommended build-step approach noted for future consideration.
-
-- [ ] Revisit fallback model metadata.
-  - Confirm `gpt-5.4-mini` is still a good fallback.
-  - Confirm fallback `imageInput`, `toolCalling`, `reasoning`, token limits, and display name match NanoGPT's current catalog.
-  - Consider making fallback metadata minimal to avoid stale capability claims.
-
-- [ ] Improve token counting if VS Code workflows depend on it.
-  - Current estimate is simple character-count plus image cost.
-  - This is acceptable for rough budgeting, but not model-accurate.
-  - Document it as approximate or use a tokenizer if one becomes worth the dependency cost.
-
-## P2: Testing and Verification
-
-- [x] Add request-construction tests for headers.
-  - **Done (2026-05-02):** `X-Provider header appears only for paygo mode with a non-empty provider` added. Asserts `X-Provider` is absent for empty provider, and absent for subscription routing (paygo always sets it regardless of routing mode intent). Existing subscription test already covers `Authorization`, `Content-Type`, `Accept: text/event-stream`.
-
-- [x] Add reasoning option tests.
-  - **Done (2026-05-02):** `serializes all reasoning effort values: none, minimal, and xhigh` added. Now covers all effort values. Existing tests cover `high`, `medium`, `auto` omission, and `hidden` reasoning exclusion.
-
-- [x] Add model discovery endpoint tests.
-  - **Done (2026-05-02):** `discovers models with detailed NanoGPT metadata` extended to assert both paygo (`/api/v1/models?detailed=true`) and subscription (`/api/subscription/v1/models?detailed=true`) URLs are used depending on `routingMode`.
-
-- [x] Add extension-host smoke test notes.
-  - **Done (2026-05-02):** Added [docs/extension-host-smoke-test.md](docs/extension-host-smoke-test.md) with a manual checklist for provider configuration, model discovery, basic text response, reasoning output modes, and tool-calling verification (`LanguageModelToolCallPart`).
-
-## P3: Chat-Adjacent NanoGPT Features
-
-- [ ] Document model suffix behavior rather than building first-class UI immediately.
-  - Examples: `:thinking`, `:reasoning-exclude`, `:online`, `:memory`.
-  - Users can select or allowlist exact model IDs with suffixes where NanoGPT supports them.
-  - Avoid first-class controls until there is a VS Code UX need.
-
-- [ ] Keep prompt caching out of first-class scope for now.
-  - NanoGPT has implicit provider caching and explicit prompt-caching controls.
-  - VS Code provider requests do not currently expose a clear user-level cache-boundary contract.
-
-- [ ] Keep BYOK, X-402, service tiers, and billing controls out unless users ask.
-  - These are valid NanoGPT chat-adjacent features, but not core VS Code language model provider capabilities.
-
-## Done Criteria for Full Alignment
-
-- VS Code can discover real NanoGPT chat models and advertise only capabilities the extension can actually handle.
-- Chat requests use NanoGPT's documented streaming contract and return useful errors.
-- Reasoning controls cover NanoGPT's advertised effort values or intentionally document the narrowed VS Code set.
-- Tool calling supports VS Code's full exposed tool-mode surface and correctly handles multiple streamed tool calls.
-- Model discovery strategy is explicit for subscription, paygo, and paid/extras visibility.
-- Tests cover request construction, discovery mapping, reasoning deltas, tool calls, and capability mapping.
+| File | What to Update |
+|------|---------------|
+| `src/nanogpt-types.ts` | Type definition |
+| `src/nanogpt.ts` | `buildModelConfigurationSchema()` |
+| `src/config.ts` | Validator function |
+| `package.json` | `languageModelChatProviders.configuration` + `configuration.properties` |
+| `test/*.test.ts` | Corresponding test coverage |
