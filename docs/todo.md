@@ -1,78 +1,61 @@
-# Code Review TODO
+# TODO: Extension Review Follow-up Plan
 
-> Generated: 2026-05-06
+Date: 2026-05-07
+Purpose: Track the concrete follow-up work from the latest full review of the NanoGPT VS Code extension.
 
-This document tracks issues identified during code review of the NanoGPT Provider VS Code Extension.
+## Priority Guide
 
----
+- P0: User-visible correctness bug or contract violation.
+- P1: Important behavior or reliability fix.
+- P2: Lower-risk correctness hardening or resilience improvement.
 
-## Critical Issues
+## P0: Fix Mixed Tool Result + Image Message Loss
 
-- [ ] **[nanogpt-parser.ts:112]** Tool name accumulation bug — `pending.name += toolCall.function.name` concatenates name fragments across chunks instead of replacing. If a tool name is streamed in pieces (e.g., "get" → "Weather" → "For"), the name becomes "getWeatherFor" instead of the final value. Fix: change `+=` to `=`.
+- [ ] Preserve image parts when a chat turn includes both tool results and fresh multimodal input.
+  - Current issue: `toNanoGptMessages()` preserves text plus tool results, but drops image parts once `toolResultMessages.length > 0`.
+  - Expected behavior: a mixed message should preserve all non-tool content that NanoGPT can accept, then append tool result messages.
+  - Update the conversion logic so text-only and multimodal content are both retained in the pre-tool message.
+  - Add a regression test covering one user turn with text, an image `LanguageModelDataPart`, and a tool result.
 
-- [ ] **[client.ts:241-286]** SSE stream reader not cancelled on abort/timeout — when a user cancels or the timeout fires, the streaming loop breaks via `done: true` but `reader.cancel()` is never called. Add `reader.cancel()` in a finally block or check abort state and cancel proactively.
+## P1: Enforce Hidden Reasoning Locally
 
-- [ ] **[extension.ts:424]** `model.internal?.parallelToolCalls` returns `boolean | undefined`. The downstream logic handles this correctly (falsy skips the field), but the type annotation should be explicit to prevent future misuse.
+- [ ] Ensure `reasoningOutput: "hidden"` never surfaces reasoning in VS Code even if NanoGPT streams it anyway.
+  - Current issue: the request asks NanoGPT to exclude reasoning, but the extension still reports any received reasoning deltas.
+  - Expected behavior: hidden means hidden regardless of upstream behavior.
+  - Gate reasoning emission in the provider layer before creating thinking parts or text fallbacks.
+  - Add coverage for `hidden`, `native`, and `visible`, including the case where `LanguageModelThinkingPart` is unavailable.
 
----
+## P1: Fix Token Counting for Tool Results
 
-## High Priority Issues
+- [ ] Include nested tool-result payloads in approximate token counting.
+  - Current issue: `estimateTokenCount()` only counts top-level text and top-level images, while tool results are nested message content.
+  - Expected behavior: provider token estimates should reflect large tool outputs closely enough for VS Code budgeting.
+  - Update the estimator or its caller so tool-result text and nested binary/text parts contribute to the count.
+  - Add regression tests for large tool-result text and tool-result binary/text payloads.
 
-- [ ] **[nanogpt-parser.ts:99-106]** Tool call `index === 0` edge case — when `index === 0`, `hasIndex` is true, but `lastSeenIndex` is set to `0` which happens to work for subsequent tool calls without an index. However, the logic is fragile and inconsistent with `isPositiveNumber` which explicitly excludes zero (`value > 0`). Consider clarifying or unifying the validation.
+## P2: Scope Model Discovery Cache More Precisely
 
-- [ ] **[nanogpt-message.ts:234]** `toNanoGptTools` returns `unknown[]` — loses type information. The return type should be explicitly typed as `Array<{ type: "function"; function: { name: string; description: string; parameters: object } }>`.
+- [ ] Prevent allowlist-specific discovery results from sharing the same fallback cache entry.
+  - Current issue: model discovery cache keys only include API key and routing mode, but discovery requests also vary by allowlist.
+  - Failure mode: if discovery later fails, one provider configuration can fall back to a model list cached for a different allowlist.
+  - Include a normalized allowlist component in the cache key, or otherwise partition cached results per effective discovery configuration.
+  - Add a targeted test for two configurations with the same key/routing mode and different allowlists.
 
-- [ ] **[extension.ts:144-164]** `logRuntimeModelResolution` has an unhandled promise rejection path — the function has internal try/catch for `selectChatModels`, but errors thrown after the try/catch block (or in the `model.countTokens` call's outer scope) would propagate as unhandled rejections when called with `void`.
+## Cross-Cutting Validation
 
----
+- [ ] Add focused regression coverage for the provider/config layer.
+  - The current unit suite is green, but the review found gaps in extension-layer behavior.
+  - Add the narrowest tests that exercise message conversion, reasoning suppression, token counting, and discovery fallback behavior.
 
-## Medium Priority Issues
+- [ ] Re-run the standard verification commands after each slice is fixed.
+  - `npm test`
+  - `npm run typecheck`
+  - `npm run lint`
 
-- [ ] **[nanogpt.ts + package.json]** Configuration schema duplicated — `buildModelConfigurationSchema()` in `src/nanogpt.ts` and the `languageModelChatProviders.configuration` object in `package.json` must be kept in sync manually. The documentation acknowledges this; consider a build step to generate `package.json` from the schema function, or at minimum add a test that compares the two schemas for parity.
+## Done Criteria
 
-- [ ] **[nanogpt.ts:221]** Token count estimate has no upper bound — `Math.max(1, Math.ceil(text.length / 4) + imageCount * 1024)` can return very large values for extremely long inputs without sanity checking against model context limits.
-
-- [ ] **[extension.ts:290]** Cache key includes full API key in memory — `cacheKey = \`${apiKey}|${routingMode}\`` stores the raw API key in a Map key. If the cache object is ever exposed (debugger, heap dump), this could leak credentials. Consider using a hash of the API key instead.
-
-- [ ] **[extension.ts:76,122-123]** Multiple `as` type assertions bypass type safety — `(capabilities as Record<string, unknown>)[key]` and similar casts assume API shapes that could change. Add runtime validation or narrow the types to reduce reliance on unsafe casts.
-
-- [ ] **[extension.ts:541-542]** `isVerboseLoggingEnabled()` called twice in config change handler — minor inefficiency; first call result is stored but function is called again in the `if` condition.
-
----
-
-## Low Priority Issues
-
-- [ ] **[package.json:198-207]** DevDependencies use caret ranges (`^4.1.5`, etc.) — builds could use different versions over time. Consider pinning exact versions for reproducible CI.
-
-- [ ] **[.env.local]** Contains a real NanoGPT API key — file is in `.gitignore` but poses a risk if accidentally committed or shared. Ensure no secrets are committed and review `process.env.NANOGPT_API_KEY` fallback usage.
-
-- [ ] **[vscode-messaging.ts]** No dedicated test file — `createThinkingPart` and `getPromptTsxText` are tested indirectly through `nanogpt-message.test.ts`. Consider adding unit tests directly in `vscode-messaging.test.ts`.
-
-- [ ] **[nanogpt-parser.ts:98-99]** Comment says "isPositiveNumber requires > 0" but `isPositiveNumber` is not actually used in the parser — the validation is inlined. This comment is misleading.
-
----
-
-## What Works Well
-
-- **Architecture:** Clean three-layer separation (VS Code integration → Transport → Core) with clear module responsibilities
-- **Type safety:** Extensive use of TypeScript types and type guards (`isObject`, `isPositiveNumber`)
-- **Test coverage:** 106 tests covering core functionality with good edge case coverage
-- **Error handling:** SSE parser gracefully handles malformed JSON; tool call parsing failures are recovered
-- **Security:** API keys properly redacted from logs; VS Code secret storage used correctly
-- **Schema validation:** Tool payload size validation (200 KB limit) prevents oversized requests
-- **Cancellation:** Proper abort signal bridging between VS Code tokens and fetch
-- **Documentation:** Architecture docs, AGENTS.md, and changelog are well maintained
-
----
-
-## Schema Sync Reference
-
-When modifying `NanoGptReasoningEffort` or adding configuration options, update all locations:
-
-| File | What to Update |
-|------|---------------|
-| `src/nanogpt-types.ts` | Type definition |
-| `src/nanogpt.ts` | `buildModelConfigurationSchema()` |
-| `src/config.ts` | Validator function |
-| `package.json` | `languageModelChatProviders.configuration` + `configuration.properties` |
-| `test/*.test.ts` | Corresponding test coverage |
+- Mixed message turns no longer lose images when tool results are present.
+- Hidden reasoning is never surfaced locally.
+- Tool-result-heavy conversations produce more realistic token estimates.
+- Discovery fallback cannot leak models across differing allowlists.
+- New regression tests cover each reviewed failure mode.
