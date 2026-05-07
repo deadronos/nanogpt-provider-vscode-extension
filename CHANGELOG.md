@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Fixed mixed tool result + image message loss: multimodal user turns now preserve images alongside text when tool results are present in the same message.
+- Enforced hidden reasoning locally: when `reasoningOutput` is `"hidden"`, streamed reasoning deltas are no longer surfaced as thinking parts or text fallbacks.
+- Fixed token counting for tool results: nested tool-result text and binary payloads now contribute to approximate token estimates.
+- Scoped model discovery cache more precisely by including a normalized allowlist component in cache keys.
+- Added regression tests covering mixed message conversion, tool-result token estimation, and discovery allowlist scenarios.
+
 ## 0.0.7
 
 - Added verbose runtime-model diagnostics that log how VS Code resolves NanoGPT models and token counting after provider registration, to debug Copilot tokenizer failures.

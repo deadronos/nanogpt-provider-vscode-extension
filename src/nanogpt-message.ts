@@ -167,19 +167,21 @@ export function toNanoGptMessages(messages: readonly VscodeLikeMessage[]): NanoG
       }
 
       if (toolResultMessages.length > 0) {
-        // Preserve text content alongside tool results when both are present.
-        const hasText = contentParts.some(
-          (part) => part.type === "text" && (part as NanoGptTextContentPart).text.trim(),
-        );
-        if (hasText) {
-          const textContent = contentParts
-            .filter((part): part is NanoGptTextContentPart => part.type === "text")
-            .map((part) => part.text)
-            .join("");
+        // Preserve all non-tool content alongside tool results when both are present.
+        // This handles text-only, image-only, and mixed text+image content so
+        // multimodal user turns are not degraded when tool results co-occur.
+        if (contentParts.length > 0) {
+          const hasImage = contentParts.some((part) => part.type === "image_url");
+          const preToolContent = hasImage
+            ? contentParts
+            : contentParts
+                .filter((part): part is NanoGptTextContentPart => part.type === "text")
+                .map((part) => part.text)
+                .join("");
           return [
             {
               role: resolveRole(message.role),
-              content: textContent,
+              content: preToolContent,
             } as NanoGptChatMessage,
             ...toolResultMessages,
           ];

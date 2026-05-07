@@ -46,7 +46,7 @@ export {
 
 // ── Module-specific exports (kept in this file) ──────────────────────────────
 
-import { isPositiveNumber } from "./utils.js";
+import { isObject, isPositiveNumber } from "./utils.js";
 import {
   type NanoGptModelEntry,
   type NanoGptTokenizer,
@@ -211,13 +211,40 @@ export function mapNanoGptModelsToVscode(
  * but is sufficient for VS Code's approximate token reporting.
  */
 export function estimateTokenCount(value: string | VscodeLikeMessage): number {
-  const text =
-    typeof value === "string"
-      ? value
-      : value.content.map((part) => getTextPartValue(part)).join("");
-  const imageCount =
-    typeof value === "string"
-      ? 0
-      : value.content.filter((part) => toNanoGptImagePart(part) !== null).length;
-  return Math.max(1, Math.ceil(text.length / 4) + imageCount * 1024);
+  if (typeof value === "string") {
+    return Math.max(1, Math.ceil(value.length / 4));
+  }
+
+  const imageCount = value.content.filter((part) => toNanoGptImagePart(part) !== null).length;
+  let totalText = value.content.map((part) => getTextPartValue(part)).join("");
+
+  // Include nested tool-result payloads in the estimate so VS Code token
+  // budgeting reflects large tool outputs.
+  for (const part of value.content) {
+    if (typeof part.callId !== "string" || !Array.isArray(part.content)) {
+      continue;
+    }
+    for (const contentPart of part.content) {
+      if (!isObject(contentPart)) {
+        continue;
+      }
+      const contentText = getTextPartValue(contentPart);
+      if (contentText) {
+        totalText += contentText;
+      }
+      if (contentPart.data instanceof Uint8Array) {
+        const mimeType =
+          typeof contentPart.mimeType === "string" ? contentPart.mimeType : "";
+        if (
+          mimeType === "application/json" ||
+          mimeType.endsWith("+json") ||
+          mimeType.startsWith("text/")
+        ) {
+          totalText += Buffer.from(contentPart.data).toString("utf8");
+        }
+      }
+    }
+  }
+
+  return Math.max(1, Math.ceil(totalText.length / 4) + imageCount * 1024);
 }

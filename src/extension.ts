@@ -119,8 +119,13 @@ function getRuntimeCapabilities(
   return isObject(model.capabilities) ? model.capabilities : undefined;
 }
 
-function createModelCacheKey(apiKey: string, routingMode: string): string {
-  return `${routingMode}:${sha256Hex(apiKey)}`;
+function createModelCacheKey(
+  apiKey: string,
+  routingMode: string,
+  allowlistKey?: string,
+): string {
+  const key = `${routingMode}:${sha256Hex(apiKey)}`;
+  return allowlistKey ? `${key}:${allowlistKey}` : key;
 }
 
 function getRuntimeCapabilityValue(model: RuntimeLanguageModelLike, key: string): string {
@@ -249,6 +254,9 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     const apiKey = await resolveApiKey(this.context, options.configuration);
     const allowlist = getModelAllowlist(options.configuration);
     const routingMode = getRoutingMode(options.configuration);
+    const allowlistKey = allowlist.length > 0
+      ? allowlist.slice().sort().join(",")
+      : undefined;
 
     this.logger.info(`[${requestId}] model discovery started`);
     this.logger.debug(
@@ -296,7 +304,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
       return DEFAULT_MODELS;
     }
 
-    const cacheKey = createModelCacheKey(apiKey, routingMode);
+    const cacheKey = createModelCacheKey(apiKey, routingMode, allowlistKey);
     const abortSignal = createAbortSignal(token);
     try {
       const models = await this.client.discoverModels({
@@ -441,6 +449,9 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         onReasoning: (text) => {
           responseSummary.reasoningDeltas += 1;
           responseSummary.reasoningChars += text.length;
+          if (reasoningOutput === "hidden") {
+            return;
+          }
           const thinkingPart = createThinkingPart(text);
           if (thinkingPart) {
             progress.report(thinkingPart);
