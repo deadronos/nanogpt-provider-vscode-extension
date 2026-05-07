@@ -12,6 +12,7 @@ export type {
   NanoGptTextContentPart,
   NanoGptMessageContent,
   NanoGptToolCall,
+  NanoGptToolDefinition,
   NanoGptChatMessage,
   VscodeLikePart,
   VscodeLikeMessage,

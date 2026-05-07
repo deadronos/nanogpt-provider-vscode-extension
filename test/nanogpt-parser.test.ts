@@ -124,4 +124,13 @@ describe("nanogpt-parser: SSE parser", () => {
     ]);
     expect(parts).toEqual([{ type: "tool_call", callId: "call_1", name: "search", input: { q: "test" } }]);
   });
+
+  test("uses the latest streamed tool name chunk instead of concatenating fragments", () => {
+    const parts = collectSseResponseParts([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"sea","arguments":""}}]}}]}',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"search","arguments":"{\\"q\\":\\"test\\"}"}}]}}]}',
+      "data: [DONE]",
+    ]);
+    expect(parts).toEqual([{ type: "tool_call", callId: "call_1", name: "search", input: { q: "test" } }]);
+  });
 });

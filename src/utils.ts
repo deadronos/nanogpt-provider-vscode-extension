@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 // ── Shared cross-cutting helpers ─────────────────────────────────────────────
 
 /**
@@ -19,6 +21,13 @@ export function isObject(value: unknown): value is Record<string, unknown> {
  */
 export function toBase64(data: Uint8Array): string {
   return Buffer.from(data).toString("base64");
+}
+
+/**
+ * Returns a stable SHA-256 hex digest for a string.
+ */
+export function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 /**

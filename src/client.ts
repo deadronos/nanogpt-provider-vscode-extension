@@ -279,6 +279,11 @@ export class NanoGptClient {
           `[${requestId}] chat stream processed (chunks=${chunkCount}, textParts=${textPartCount}, reasoningParts=${reasoningPartCount}, toolCalls=${toolCallCount})`,
         );
       } finally {
+        try {
+          await reader.cancel();
+        } catch {
+          // Ignore reader teardown failures; the stream is already ending.
+        }
         reader.releaseLock();
       }
     } finally {

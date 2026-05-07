@@ -16,7 +16,7 @@ import {
 } from "./config.js";
 import { createLogger, OUTPUT_CHANNEL_NAME } from "./logging.js";
 import { toCoreMessages, toToolMode, createThinkingPart } from "./vscode-messaging.js";
-import { formatKeyValuePairs, formatRoleCounts, formatError } from "./utils.js";
+import { formatKeyValuePairs, formatRoleCounts, formatError, isObject, sha256Hex } from "./utils.js";
 
 const VENDOR_ID = "nanogpt";
 
@@ -113,21 +113,29 @@ function summarizeTools(
   });
 }
 
+function getRuntimeCapabilities(
+  model: RuntimeLanguageModelLike,
+): Record<string, unknown> | undefined {
+  return isObject(model.capabilities) ? model.capabilities : undefined;
+}
+
+function createModelCacheKey(apiKey: string, routingMode: string): string {
+  return `${routingMode}:${sha256Hex(apiKey)}`;
+}
+
 function getRuntimeCapabilityValue(model: RuntimeLanguageModelLike, key: string): string {
-  const capabilities = model.capabilities;
-  if (!capabilities || typeof capabilities !== "object") {
+  const capabilities = getRuntimeCapabilities(model);
+  if (!capabilities) {
     return "undefined";
   }
 
-  const value = (capabilities as Record<string, unknown>)[key];
+  const value = capabilities[key];
   return value === undefined ? "undefined" : String(value);
 }
 
 function summarizeRuntimeModel(model: RuntimeLanguageModelLike): string {
-  const capabilityKeys =
-    model.capabilities && typeof model.capabilities === "object"
-      ? Object.keys(model.capabilities as Record<string, unknown>).join("|") || "none"
-      : "none";
+  const capabilities = getRuntimeCapabilities(model);
+  const capabilityKeys = capabilities ? Object.keys(capabilities).join("|") || "none" : "none";
 
   return formatKeyValuePairs({
     id: model.id,
@@ -190,8 +198,9 @@ function createAbortSignal(token: vscode.CancellationToken): { signal: AbortSign
  */
 class NanoGptLanguageModelProvider implements ChatProviderApi {
   /**
-   * Cache keyed on `"${apiKey}|${routingMode}"` so that different API keys
-   * or routing surfaces each get an independent cached model list.
+  * Cache keyed on `routingMode + sha256(apiKey)` so that different API keys
+  * or routing surfaces each get an independent cached model list without
+  * retaining raw credentials in memory keys.
    * `clearModelCache()` flushes all entries.
    */
   private readonly modelCache = new Map<string, VscodeModelMetadata[]>();
@@ -284,10 +293,10 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
       if (!options.silent) {
         await vscode.commands.executeCommand("nanogpt.manage");
       }
-      return this.modelCache.get(`|${routingMode}`) ?? DEFAULT_MODELS;
+      return DEFAULT_MODELS;
     }
 
-    const cacheKey = `${apiKey}|${routingMode}`;
+    const cacheKey = createModelCacheKey(apiKey, routingMode);
     const abortSignal = createAbortSignal(token);
     try {
       const models = await this.client.discoverModels({

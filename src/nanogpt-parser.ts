@@ -95,7 +95,7 @@ export class NanoGptSseParser {
           }
 
           for (const toolCall of choice.delta?.tool_calls ?? []) {
-            // isPositiveNumber requires > 0, so index 0 must be handled separately.
+            // Tool-call indexes are zero-based, so accept 0 as an explicit index.
             const rawIndex = toolCall.index;
             const hasIndex =
               typeof rawIndex === "number" && Number.isFinite(rawIndex) && rawIndex >= 0;
@@ -109,7 +109,7 @@ export class NanoGptSseParser {
               pending.id = toolCall.id;
             }
             if (typeof toolCall.function?.name === "string") {
-              pending.name += toolCall.function.name;
+              pending.name = toolCall.function.name;
             }
             if (typeof toolCall.function?.arguments === "string") {
               pending.arguments += toolCall.function.arguments;

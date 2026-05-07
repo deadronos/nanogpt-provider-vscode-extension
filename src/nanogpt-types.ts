@@ -35,6 +35,15 @@ export type NanoGptToolCall = {
   };
 };
 
+export type NanoGptToolDefinition = {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: object;
+  };
+};
+
 export type NanoGptChatMessage = {
   role: NanoGptMessageRole;
   content: NanoGptMessageContent;

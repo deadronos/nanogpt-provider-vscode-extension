@@ -4,6 +4,7 @@ import {
   type NanoGptImageUrlContentPart,
   type NanoGptTextContentPart,
   type NanoGptToolCall,
+  type NanoGptToolDefinition,
   type VscodeLikePart,
   type VscodeLikeMessage,
   type VscodeLikeTool,
@@ -231,7 +232,9 @@ export function toNanoGptMessages(messages: readonly VscodeLikeMessage[]): NanoG
  *
  * @throws If the serialized tools exceed the 200 KB limit.
  */
-export function toNanoGptTools(tools: readonly VscodeLikeTool[] | undefined): unknown[] | undefined {
+export function toNanoGptTools(
+  tools: readonly VscodeLikeTool[] | undefined,
+): NanoGptToolDefinition[] | undefined {
   if (!tools || tools.length === 0) {
     return undefined;
   }
