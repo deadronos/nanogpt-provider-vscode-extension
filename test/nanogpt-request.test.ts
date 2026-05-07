@@ -69,7 +69,7 @@ describe("nanogpt-request: buildNanoGptChatCompletionRequest", () => {
     });
   });
 
-  test("can request reasoning exclusion when reasoning output is hidden", () => {
+  test("omits reasoning field when reasoning output is hidden", () => {
     const request = buildNanoGptChatCompletionRequest({
       apiKey: "test-key",
       modelId: "moonshotai/kimi-k2.5:thinking",
@@ -80,8 +80,8 @@ describe("nanogpt-request: buildNanoGptChatCompletionRequest", () => {
     });
     expect(JSON.parse(request.body)).toMatchObject({
       reasoning_effort: "medium",
-      reasoning: { exclude: true },
     });
+    expect(JSON.parse(request.body)).not.toHaveProperty("reasoning");
   });
 
   test("X-Provider header appears only for paygo mode with a non-empty provider", () => {

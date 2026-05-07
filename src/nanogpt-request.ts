@@ -63,7 +63,7 @@ export function buildNanoGptChatCompletionRequest(params: {
         ? { reasoning_effort: params.reasoningEffort }
         : {}),
       ...(params.reasoningOutput === "hidden"
-        ? { reasoning: { exclude: true } }
+        ? {}
         : { reasoning: { exclude: false } }),
     }),
   };

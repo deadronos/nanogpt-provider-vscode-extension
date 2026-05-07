@@ -276,17 +276,27 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         })})`,
       );
       // No API key — return capability stubs for the allowlisted IDs.
+      // Use safe pessimistic defaults rather than cloning DEFAULT_MODELS[0] so
+      // that capabilities like imageInput and toolCalling are not incorrectly
+      // advertised for unverified models.
       return allowlist.map((id) => ({
         ...DEFAULT_MODELS[0],
         id,
         name: id,
         family: id,
         version: id,
+        detail: "NanoGPT (unverified)",
+        tooltip: `NanoGPT model ${id} (unverified)`,
         capabilities: {
-          ...DEFAULT_MODELS[0].capabilities,
+          imageInput: false,
+          toolCalling: false,
           family: id,
+          tokenizer: "o200k_base",
         },
-        tooltip: `NanoGPT model ${id}`,
+        reasoning: false,
+        internal: {
+          parallelToolCalls: false,
+        },
       }));
     }
 
