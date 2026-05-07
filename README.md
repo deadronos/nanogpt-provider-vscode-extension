@@ -6,9 +6,12 @@ This lets you use supported NanoGPT models from inside VS Code Chat when your VS
 
 > This project is experimental and not affiliated with NanoGPT, Microsoft, GitHub, or Visual Studio Code.
 
-## Demo Screenshot
+## Model Picker Demo Screenshot
 ![Demo screenshot showing NanoGPT models in the VS Code Chat model picker](image.png)
 
+## Copilot Chat using NanoGPT
+
+![Demo screenshot showing a Copilot Chat conversation using a NanoGPT model, including reasoning output in the "Thinking" pane](image-demochat.png)
 
 ## What it does
 
