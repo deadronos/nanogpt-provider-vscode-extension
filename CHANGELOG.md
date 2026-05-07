@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.9
+
+- Fixed allowlist stub capabilities: unverified model stubs no longer clone `DEFAULT_MODELS[0]` capabilities. Instead they use safe pessimistic defaults (`imageInput: false`, `toolCalling: false`, `reasoning: false`) and are marked "NanoGPT (unverified)".
+- Changed `reasoningOutput: "hidden"` to omit the `reasoning` field from the request body entirely, consistent with the `reasoningEffort: "auto"` sentinel pattern, rather than sending `{ exclude: true }`.
+- Added `.editorconfig` for consistent formatting across contributors (LF, UTF-8, 2-space indent).
+- Added implementation plan document at `docs/plans/improve-code-review-findings.md`.
+
 ## 0.0.8
 
 - Fixed mixed tool result + image message loss: multimodal user turns now preserve images alongside text when tool results are present in the same message.
