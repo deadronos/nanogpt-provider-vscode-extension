@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.8
+
 - Fixed mixed tool result + image message loss: multimodal user turns now preserve images alongside text when tool results are present in the same message.
 - Enforced hidden reasoning locally: when `reasoningOutput` is `"hidden"`, streamed reasoning deltas are no longer surfaced as thinking parts or text fallbacks.
 - Fixed token counting for tool results: nested tool-result text and binary payloads now contribute to approximate token estimates.
