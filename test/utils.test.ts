@@ -3,6 +3,7 @@ import {
   isPositiveNumber,
   isObject,
   toBase64,
+  sha256Hex,
   formatKeyValuePairs,
   formatRoleCounts,
   formatError,
@@ -49,6 +50,12 @@ describe("utils", () => {
   test("toBase64 encodes Uint8Array data", () => {
     const input = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
     expect(toBase64(input)).toBe("SGVsbG8=");
+  });
+
+  test("sha256Hex returns a stable hex digest", () => {
+    expect(sha256Hex("test-key")).toMatch(/^[a-f0-9]{64}$/);
+    expect(sha256Hex("test-key")).toBe(sha256Hex("test-key"));
+    expect(sha256Hex("test-key")).not.toBe("test-key");
   });
 
   // ── formatKeyValuePairs ─────────────────────────────────────────────────────

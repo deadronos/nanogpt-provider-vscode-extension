@@ -25,8 +25,8 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
       {
         id: "gpt-5.4-mini",
         name: "GPT-5.4 Mini",
-        family: "nanogpt",
-        version: "nano-gpt",
+        family: "gpt-5.4-mini",
+        version: "gpt-5.4-mini",
         maxInputTokens: 167232,
         maxOutputTokens: 32768,
         detail: "NanoGPT",
@@ -34,6 +34,8 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
         capabilities: {
           imageInput: true,
           toolCalling: true,
+          family: "gpt-5.4-mini",
+          tokenizer: "o200k_base",
         },
         reasoning: false,
         internal: {
@@ -71,6 +73,8 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     expect(models[0]!.capabilities).toEqual({
       imageInput: true,
       toolCalling: true,
+      family: "test/model",
+      tokenizer: "o200k_base",
     });
     expect(models[0]!.reasoning).toBe(true);
     expect(models[0]!.internal).toEqual({
@@ -95,6 +99,8 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     expect(models[0]?.capabilities).toEqual({
       imageInput: true,
       toolCalling: true,
+      family: "moonshotai/kimi-k2.5:thinking",
+      tokenizer: "o200k_base",
     });
     expect(models[0]?.reasoning).toBe(true);
     expect(models[0]?.configurationSchema).toMatchObject({
@@ -258,6 +264,42 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
       ["model-a", "model-c"],
     );
     expect(models.map((m) => m.id)).toEqual(["model-a", "model-c"]);
+  });
+
+  test("prefers discovered family and version metadata when provided", () => {
+    const models = mapNanoGptModelsToVscode([
+      {
+        id: "moonshotai/kimi-k2.5:thinking",
+        name: "Kimi K2.5 Thinking",
+        family: "kimi-k2.5",
+        version: "thinking",
+      },
+    ]);
+
+    expect(models[0]).toMatchObject({
+      family: "kimi-k2.5",
+      version: "thinking",
+      capabilities: {
+        family: "kimi-k2.5",
+        tokenizer: "o200k_base",
+      },
+    });
+  });
+
+  test("maps legacy GPT families to cl100k tokenizer hints", () => {
+    const models = mapNanoGptModelsToVscode([
+      {
+        id: "gpt-4-turbo",
+        name: "GPT-4 Turbo",
+      },
+    ]);
+
+    expect(models[0]).toMatchObject({
+      capabilities: {
+        family: "gpt-4-turbo",
+        tokenizer: "cl100k_base",
+      },
+    });
   });
 
   test("adds 1024 tokens per image in message content", () => {

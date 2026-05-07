@@ -196,9 +196,13 @@ describe("NanoGptClient", () => {
 
   test("releases the response reader after streaming completes", async () => {
     let released = false;
+    let cancelled = false;
     const reader = {
       async read() {
         return { done: true, value: undefined };
+      },
+      async cancel() {
+        cancelled = true;
       },
       releaseLock() {
         released = true;
@@ -226,6 +230,7 @@ describe("NanoGptClient", () => {
       onText: () => {},
     });
 
+    expect(cancelled).toBe(true);
     expect(released).toBe(true);
   });
 

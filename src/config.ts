@@ -14,8 +14,8 @@ export const DEFAULT_MODELS: VscodeModelMetadata[] = [
   {
     id: "gpt-5.4-mini",
     name: "GPT-5.4 Mini",
-    family: "nanogpt",
-    version: "nano-gpt",
+    family: "gpt-5.4-mini",
+    version: "gpt-5.4-mini",
     maxInputTokens: 167232,
     maxOutputTokens: 32768,
     detail: "NanoGPT",
@@ -23,6 +23,8 @@ export const DEFAULT_MODELS: VscodeModelMetadata[] = [
     capabilities: {
       imageInput: true,
       toolCalling: false,
+      family: "gpt-5.4-mini",
+      tokenizer: "o200k_base",
     },
     reasoning: true,
     internal: {

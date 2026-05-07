@@ -35,6 +35,15 @@ export type NanoGptToolCall = {
   };
 };
 
+export type NanoGptToolDefinition = {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: object;
+  };
+};
+
 export type NanoGptChatMessage = {
   role: NanoGptMessageRole;
   content: NanoGptMessageContent;
@@ -73,6 +82,8 @@ export type NanoGptModelEntry = {
   canonicalId?: unknown;
   name?: unknown;
   displayName?: unknown;
+  family?: unknown;
+  version?: unknown;
   context_length?: unknown;
   contextWindow?: unknown;
   max_output_tokens?: unknown;
@@ -85,6 +96,7 @@ export type NanoGptModelEntry = {
 
 export type NanoGptReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type NanoGptReasoningOutput = "hidden" | "native" | "visible";
+export type NanoGptTokenizer = "cl100k_base" | "o200k_base";
 
 export type VscodeModelMetadata = {
   id: string;
@@ -98,6 +110,8 @@ export type VscodeModelMetadata = {
   capabilities: {
     imageInput: boolean;
     toolCalling: boolean;
+    family?: string;
+    tokenizer?: NanoGptTokenizer;
   };
   reasoning: boolean;
   internal?: {

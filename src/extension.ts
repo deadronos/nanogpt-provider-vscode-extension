@@ -16,7 +16,7 @@ import {
 } from "./config.js";
 import { createLogger, OUTPUT_CHANNEL_NAME } from "./logging.js";
 import { toCoreMessages, toToolMode, createThinkingPart } from "./vscode-messaging.js";
-import { formatKeyValuePairs, formatRoleCounts, formatError } from "./utils.js";
+import { formatKeyValuePairs, formatRoleCounts, formatError, isObject, sha256Hex } from "./utils.js";
 
 const VENDOR_ID = "nanogpt";
 
@@ -51,6 +51,12 @@ type MessageSummary = {
   dataParts: number;
   toolCallParts: number;
   toolResultParts: number;
+};
+
+type RuntimeLanguageModelLike = vscode.LanguageModelChat & {
+  vendor?: unknown;
+  tokenizer?: unknown;
+  capabilities?: unknown;
 };
 
 function summarizeMessages(
@@ -107,6 +113,65 @@ function summarizeTools(
   });
 }
 
+function getRuntimeCapabilities(
+  model: RuntimeLanguageModelLike,
+): Record<string, unknown> | undefined {
+  return isObject(model.capabilities) ? model.capabilities : undefined;
+}
+
+function createModelCacheKey(apiKey: string, routingMode: string): string {
+  return `${routingMode}:${sha256Hex(apiKey)}`;
+}
+
+function getRuntimeCapabilityValue(model: RuntimeLanguageModelLike, key: string): string {
+  const capabilities = getRuntimeCapabilities(model);
+  if (!capabilities) {
+    return "undefined";
+  }
+
+  const value = capabilities[key];
+  return value === undefined ? "undefined" : String(value);
+}
+
+function summarizeRuntimeModel(model: RuntimeLanguageModelLike): string {
+  const capabilities = getRuntimeCapabilities(model);
+  const capabilityKeys = capabilities ? Object.keys(capabilities).join("|") || "none" : "none";
+
+  return formatKeyValuePairs({
+    id: model.id,
+    vendor: typeof model.vendor === "string" ? model.vendor : "unknown",
+    family: model.family,
+    version: model.version,
+    tokenizer: model.tokenizer === undefined ? "undefined" : String(model.tokenizer),
+    capabilityKeys,
+    capabilityFamily: getRuntimeCapabilityValue(model, "family"),
+    capabilityTokenizer: getRuntimeCapabilityValue(model, "tokenizer"),
+  });
+}
+
+async function logRuntimeModelResolution(logger: NanoGptLogger): Promise<void> {
+  try {
+    const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
+    logger.debug(`[runtime] resolved NanoGPT models (${formatKeyValuePairs({ count: models.length })})`);
+
+    for (const model of models.slice(0, 5)) {
+      let helloTokenCount = "error";
+
+      try {
+        helloTokenCount = String(await model.countTokens("hello"));
+      } catch (error) {
+        helloTokenCount = `error:${formatError(error)}`;
+      }
+
+      logger.debug(
+        `[runtime] selected model (${summarizeRuntimeModel(model as RuntimeLanguageModelLike)}, helloTokens=${helloTokenCount})`,
+      );
+    }
+  } catch (error) {
+    logger.warn(`[runtime] failed to resolve NanoGPT models: ${formatError(error)}`);
+  }
+}
+
 /**
  * Creates an `AbortSignal` that mirrors the VS Code cancellation token.
  * Aborts immediately if the token is already cancelled.
@@ -133,8 +198,9 @@ function createAbortSignal(token: vscode.CancellationToken): { signal: AbortSign
  */
 class NanoGptLanguageModelProvider implements ChatProviderApi {
   /**
-   * Cache keyed on `"${apiKey}|${routingMode}"` so that different API keys
-   * or routing surfaces each get an independent cached model list.
+  * Cache keyed on `routingMode + sha256(apiKey)` so that different API keys
+  * or routing surfaces each get an independent cached model list without
+  * retaining raw credentials in memory keys.
    * `clearModelCache()` flushes all entries.
    */
   private readonly modelCache = new Map<string, VscodeModelMetadata[]>();
@@ -206,6 +272,12 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         ...DEFAULT_MODELS[0],
         id,
         name: id,
+        family: id,
+        version: id,
+        capabilities: {
+          ...DEFAULT_MODELS[0].capabilities,
+          family: id,
+        },
         tooltip: `NanoGPT model ${id}`,
       }));
     }
@@ -221,10 +293,10 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
       if (!options.silent) {
         await vscode.commands.executeCommand("nanogpt.manage");
       }
-      return this.modelCache.get(`|${routingMode}`) ?? DEFAULT_MODELS;
+      return DEFAULT_MODELS;
     }
 
-    const cacheKey = `${apiKey}|${routingMode}`;
+    const cacheKey = createModelCacheKey(apiKey, routingMode);
     const abortSignal = createAbortSignal(token);
     try {
       const models = await this.client.discoverModels({
@@ -462,6 +534,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   if (typeof lm.registerLanguageModelChatProvider === "function") {
     context.subscriptions.push(lm.registerLanguageModelChatProvider(VENDOR_ID, provider));
+    if (isVerboseLoggingEnabled()) {
+      void logRuntimeModelResolution(logger);
+    }
   } else {
     logger.warn("Language Model Chat Provider API is unavailable in this VS Code build");
     void vscode.window.showWarningMessage(
@@ -472,9 +547,11 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration(`nanogpt.${VERBOSE_LOGGING_SETTING}`)) {
-        logger.info(
-          `NanoGPT verbose logging ${isVerboseLoggingEnabled() ? "enabled" : "disabled"}`,
-        );
+        const verboseLoggingEnabled = isVerboseLoggingEnabled();
+        logger.info(`NanoGPT verbose logging ${verboseLoggingEnabled ? "enabled" : "disabled"}`);
+        if (verboseLoggingEnabled) {
+          void logRuntimeModelResolution(logger);
+        }
       }
     }),
     vscode.commands.registerCommand("nanogpt.manage", async () => {
