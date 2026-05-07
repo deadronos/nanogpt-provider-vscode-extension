@@ -1,6 +1,6 @@
 // @ts-check
 import tseslint from 'typescript-eslint';
-import stylisticTs from '@stylistic/eslint-plugin-ts';
+import stylistic from '@stylistic/eslint-plugin';
 
 export default tseslint.config(
 	// Ignore compiled output
@@ -14,7 +14,7 @@ export default tseslint.config(
 			parser: tseslint.parser,
 		},
 		plugins: {
-			'@stylistic/ts': stylisticTs,
+			'@stylistic': stylistic,
 			'@typescript-eslint': tseslint.plugin,
 		},
 		rules: {
@@ -35,8 +35,8 @@ export default tseslint.config(
 
 			// Disable built-in semi in favour of stylistic
 			'semi': 'off',
-			'@stylistic/ts/semi': 'warn',
-			'@stylistic/ts/member-delimiter-style': 'warn',
+			'@stylistic/semi': 'warn',
+			'@stylistic/member-delimiter-style': 'warn',
 
 			// TypeScript naming + any rules (derived from VS Code's TS config)
 			'@typescript-eslint/naming-convention': [

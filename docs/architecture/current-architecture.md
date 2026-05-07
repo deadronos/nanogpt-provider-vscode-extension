@@ -169,8 +169,6 @@ Cross-cutting helpers not specific to any layer:
 
 ## Manifest-Level Architecture
 
-## Manifest-Level Architecture
-
 `package.json` defines the extension's runtime contract with VS Code.
 
 Important manifest decisions:

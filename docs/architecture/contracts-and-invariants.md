@@ -198,14 +198,18 @@ Future changes should preserve these semantics unless NanoGPT or VS Code contrac
 
 ## 10. Cache Contract
 
-Model cache key:
+Model cache key (via `createModelCacheKey` in `src/extension.ts`):
 
-- `${apiKey}|${routingMode}`
+- `${routingMode}:${sha256Hex(apiKey)}`
+- When an allowlist is active: `${key}:${normalizedAllowlist}`
+  where `normalizedAllowlist` is the allowlist IDs sorted and joined by `,`.
 
 Implications:
 
+- API keys are hashed before use so raw credentials are never in memory keys
 - different API keys do not share cached discovery results
 - subscription and paygo do not share discovery results
+- allowlist variations produce distinct cache entries so one allowlist cannot fall back to another's results
 - clearing cache flushes all keys and routing modes
 
 ## 11. Testing Contract
