@@ -209,6 +209,50 @@ describe("nanogpt-message: toNanoGptMessages", () => {
     expect(messages[1]!.role).toBe("assistant");
   });
 
+  test("preserves images alongside text and tool results in a mixed user turn", () => {
+    const messages = toNanoGptMessages([
+      {
+        role: "user",
+        content: [
+          { kind: "text", value: "Analyze this: " },
+          { kind: "data", data: new Uint8Array([137, 80, 78, 71]), mimeType: "image/png" },
+          { callId: "call_1", content: [{ kind: "text", value: "tool output" }] },
+        ],
+      },
+    ]);
+    expect(messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Analyze this: " },
+          { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw==" } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "tool output" },
+    ]);
+  });
+
+  test("preserves image-only content alongside tool results", () => {
+    const messages = toNanoGptMessages([
+      {
+        role: "user",
+        content: [
+          { kind: "data", data: new Uint8Array([137, 80, 78, 71]), mimeType: "image/png" },
+          { callId: "call_1", content: [{ kind: "text", value: "result" }] },
+        ],
+      },
+    ]);
+    expect(messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw==" } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "result" },
+    ]);
+  });
+
   test("defaults unrecognised roles to user", () => {
     const messages = toNanoGptMessages([
       { role: 99, content: [{ value: "mystery numeric" }] },

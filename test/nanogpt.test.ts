@@ -122,6 +122,63 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     ).toBe(2);
   });
 
+  test("includes tool-result text in token estimates", () => {
+    const largeText = "a".repeat(4000); // 1000 tokens
+    const message = {
+      role: "user",
+      content: [
+        { kind: "text", value: "hello" },
+        {
+          callId: "call_1",
+          content: [
+            { kind: "text", value: largeText },
+            { kind: "text", value: largeText },
+          ],
+        },
+      ],
+    };
+    const result = estimateTokenCount(message);
+    // 5 chars top-level + 8000 chars tool result = 8005 / 4 ≈ 2002
+    expect(result).toBeGreaterThanOrEqual(2000);
+    expect(result).toBeLessThanOrEqual(2010);
+  });
+
+  test("includes tool-result JSON binary payloads in token estimates", () => {
+    const jsonPayload = '{"result":' + '"x"'.repeat(2000) + "}";
+    const jsonBytes = new TextEncoder().encode(jsonPayload);
+    const message = {
+      role: "user",
+      content: [
+        { kind: "text", value: "summary" },
+        {
+          callId: "call_json",
+          content: [{ data: jsonBytes, mimeType: "application/json" }],
+        },
+      ],
+    };
+    const result = estimateTokenCount(message);
+    // "summary" (7) + '{"result":""...' (6011) = 6018 chars / 4 = 1505
+    expect(result).toBe(1505);
+  });
+
+  test("includes tool-result text/* binary payloads in token estimates", () => {
+    const textContent = "plain text result ".repeat(200);
+    const textBytes = new TextEncoder().encode(textContent);
+    const message = {
+      role: "user",
+      content: [
+        {
+          callId: "call_text",
+          content: [{ data: textBytes, mimeType: "text/plain" }],
+        },
+      ],
+    };
+    const result = estimateTokenCount(message);
+    // "plain text result " is 18 chars. 18 * 200 = 3600 chars / 4 = 900
+    expect(result).toBeGreaterThanOrEqual(890);
+    expect(result).toBeLessThanOrEqual(910);
+  });
+
   test("discovers models with detailed NanoGPT metadata", async () => {
     const fetchCalls: Array<[string | URL | Request, RequestInit | undefined]> = [];
     const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {

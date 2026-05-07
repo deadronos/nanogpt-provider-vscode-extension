@@ -17,10 +17,18 @@ export function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Encodes binary data as a base64 string using Node's `Buffer`.
+ * Encodes binary data as a base64 string.
+ *
+ * Uses a portable implementation so the core layer does not depend on
+ * Node's `Buffer`. This keeps `src/nanogpt.ts` and `src/nanogpt-message.ts`
+ * runnable in non-Node environments (e.g. web workers or browser tests).
  */
 export function toBase64(data: Uint8Array): string {
-  return Buffer.from(data).toString("base64");
+  let binary = "";
+  for (let i = 0; i < data.byteLength; i++) {
+    binary += String.fromCharCode(data[i]!);
+  }
+  return btoa(binary);
 }
 
 /**
