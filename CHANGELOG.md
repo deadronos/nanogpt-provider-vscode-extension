@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - Fixed token counting for tool results: nested tool-result text and binary payloads now contribute to approximate token estimates.
 - Scoped model discovery cache more precisely by including a normalized allowlist component in cache keys.
 - Added regression tests covering mixed message conversion, tool-result token estimation, and discovery allowlist scenarios.
+- Replaced `Buffer.from` with `TextDecoder` in the core layer (`nanogpt.ts`, `nanogpt-message.ts`) and rewrote `toBase64` in `utils.ts` with a portable loop + `btoa` implementation so the core modules no longer depend on Node.js-specific APIs.
 
 ## 0.0.7
 

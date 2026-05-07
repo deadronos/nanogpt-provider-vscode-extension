@@ -240,7 +240,7 @@ export function estimateTokenCount(value: string | VscodeLikeMessage): number {
           mimeType.endsWith("+json") ||
           mimeType.startsWith("text/")
         ) {
-          totalText += Buffer.from(contentPart.data).toString("utf8");
+          totalText += new TextDecoder().decode(contentPart.data);
         }
       }
     }

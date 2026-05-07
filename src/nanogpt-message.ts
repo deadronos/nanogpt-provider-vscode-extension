@@ -102,10 +102,10 @@ export function toToolResultContent(part: VscodeLikePart): string | null {
       const mimeType =
         typeof contentPart.mimeType === "string" ? contentPart.mimeType : "application/octet-stream";
       if (mimeType === "application/json" || mimeType.endsWith("+json")) {
-        return Buffer.from(contentPart.data).toString("utf8");
+        return new TextDecoder().decode(contentPart.data);
       }
       if (mimeType.startsWith("text/")) {
-        return Buffer.from(contentPart.data).toString("utf8");
+        return new TextDecoder().decode(contentPart.data);
       }
       return `data:${mimeType};base64,${toBase64(contentPart.data)}`;
     }
