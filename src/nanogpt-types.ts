@@ -96,6 +96,7 @@ export type NanoGptModelEntry = {
 
 export type NanoGptReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 export type NanoGptReasoningOutput = "hidden" | "native" | "visible";
+export type NanoGptToolCallingStrategy = "native" | "auto" | "bridge";
 export type NanoGptTokenizer = "cl100k_base" | "o200k_base";
 
 export type VscodeModelMetadata = {

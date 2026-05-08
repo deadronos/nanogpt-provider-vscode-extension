@@ -28,7 +28,7 @@ Expected responsibilities:
 - SSE stream reading
 - low-level sanitized transport logging
 
-### Core Transformation Layer (`src/nanogpt.ts`, `src/nanogpt-types.ts`, `src/nanogpt-message.ts`, `src/nanogpt-request.ts`, `src/nanogpt-parser.ts`)
+### Core Transformation Layer (`src/nanogpt.ts`, `src/nanogpt-types.ts`, `src/nanogpt-message.ts`, `src/nanogpt-tool-bridge.ts`, `src/nanogpt-request.ts`, `src/nanogpt-parser.ts`)
 
 Must remain free of VS Code imports and network I/O.
 
@@ -37,6 +37,7 @@ Expected responsibilities:
 - pure types (`nanogpt-types.ts`)
 - request builders (`nanogpt-request.ts`)
 - message transforms (`nanogpt-message.ts`)
+- tool-calling bridge transforms (`nanogpt-tool-bridge.ts`)
 - model mapping (`nanogpt.ts`)
 - schema builders (`nanogpt.ts`)
 - SSE parsing helpers (`nanogpt-parser.ts`)
@@ -76,6 +77,7 @@ Current schema fields:
 - `provider`
 - `reasoningEffort`
 - `reasoningOutput`
+- `toolCallingStrategy`
 
 Related workspace settings in `package.json`:
 
@@ -85,6 +87,7 @@ Related workspace settings in `package.json`:
 - `nanogpt.models`
 - `nanogpt.reasoningEffort`
 - `nanogpt.reasoningOutput`
+- `nanogpt.toolCallingStrategy`
 - `nanogpt.verboseLogging`
 
 ## 4. API Key Handling Contract
@@ -167,7 +170,7 @@ Current response-field compatibility:
 
 Current output-shaping behavior:
 
-- `hidden` excludes reasoning
+- `hidden` omits the request-side `reasoning` field and suppresses streamed reasoning in the UI
 - `native` requests non-excluded reasoning and prefers `LanguageModelThinkingPart`
 - `visible` also requests non-excluded reasoning but falls back to plain text if native thinking parts are unavailable
 
@@ -181,6 +184,10 @@ Invariants:
 - default/auto behavior is represented by omission
 - tool schema payload larger than 200 KB throws before the request is sent
 - malformed streamed tool arguments degrade to `{}` rather than crash the stream
+- `toolCallingStrategy` is extension-local and accepts `native | auto | bridge`
+- `auto` retries at most once, and only when a tool-enabled native turn yields no visible text and no tool calls
+- `bridge` rewrites tool history into plain messages plus a strict JSON-only system contract
+- pending streamed tool calls are flushed at EOF via `flushPendingToolCalls()` so providers that omit `[DONE]` do not silently lose tool calls
 
 `parallel_tool_calls` is represented internally on discovered models but not surfaced as a VS Code-visible capability.
 
@@ -245,6 +252,10 @@ When changing this repository, verify all relevant items below.
   - `src/config.ts` (validator)
   - `package.json` (contribution schema)
   - tests
+- If you change tool-calling strategy or bridge behavior, update:
+  - `src/client.ts`
+  - `src/nanogpt-tool-bridge.ts`
+  - tool-calling tests and architecture docs
 - If you change routing behavior, update:
   - `src/extension.ts`
   - `src/client.ts`

@@ -8,6 +8,7 @@ import {
   getReasoningEffort,
   getReasoningOutput,
   getRoutingMode,
+  getToolCallingStrategy,
   isVerboseLoggingEnabled,
   resolveApiKey,
   SECRET_KEY,
@@ -393,6 +394,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
 
     const reasoningOutput = getReasoningOutput(options.configuration, options.modelOptions);
     const reasoningEffort = getReasoningEffort(options.configuration, options.modelOptions);
+    const toolCallingStrategy = getToolCallingStrategy(options.configuration, options.modelOptions);
     const routingMode = getRoutingMode(options.configuration);
     const provider = getProvider(options.configuration);
     const toolMode =
@@ -424,6 +426,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         toolMode,
         reasoningEffort: reasoningEffort ?? "auto",
         reasoningOutput,
+        toolCallingStrategy,
         parallelToolCalls: Boolean(model.internal?.parallelToolCalls),
         messageCount: messageSummary.messageCount,
         roles: formatRoleCounts(messageSummary.roleCounts),
@@ -448,6 +451,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         toolMode: toToolMode(options.toolMode),
         reasoningEffort,
         reasoningOutput,
+        toolCallingStrategy,
         parallelToolCalls: model.internal?.parallelToolCalls,
         signal: abortSignal.signal,
         requestId,

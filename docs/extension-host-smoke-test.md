@@ -1,6 +1,6 @@
 # Extension Host Smoke Test
 
-Date: 2026-05-02
+Date: 2026-05-08
 Scope: Manual verification in a VS Code Extension Development Host for the NanoGPT provider integration.
 
 ## Prerequisites
@@ -26,6 +26,7 @@ Scope: Manual verification in a VS Code Extension Development Host for the NanoG
 2. Run `Chat: Manage Language Models`.
 3. Select the `NanoGPT` provider.
 4. Set API key, routing mode, and optional provider.
+5. For tool-calling reliability checks, also try `toolCallingStrategy` values `native`, `auto`, and `bridge`.
 
 Expected:
 
@@ -72,14 +73,17 @@ Expected:
 ### 5. Verify tool calling end-to-end
 
 1. Use a prompt that triggers tool usage in your environment.
-2. Confirm the model emits tool calls.
-3. Confirm tool execution result is returned and incorporated into the final answer.
+2. Repeat the same prompt with `toolCallingStrategy = native`, then `auto`, then `bridge`.
+3. Confirm the model emits tool calls.
+4. Confirm tool execution result is returned and incorporated into the final answer.
 
 Expected:
 
 - VS Code receives and surfaces `LanguageModelToolCallPart` events.
 - Tool call arguments parse correctly.
 - Tool results are sent back and final response continues normally.
+- `auto` retries a native empty tool turn once and still produces either text or tool calls.
+- `bridge` still produces usable tool calls even when the same model/provider pair is flaky with native tools.
 
 ## Suggested Prompt Set
 

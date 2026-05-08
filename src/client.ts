@@ -1,5 +1,6 @@
 import {
   buildNanoGptChatCompletionRequest,
+  buildToolCallingBridgeMessages,
   NANOGPT_BASE_URL,
   NANOGPT_SUBSCRIPTION_BASE_URL,
   NanoGptSseParser,
@@ -9,8 +10,10 @@ import {
   type NanoGptReasoningOutput,
   type NanoGptResponsePart,
   type NanoGptRoutingMode,
+  type NanoGptToolCallingStrategy,
   type VscodeLikeTool,
   type VscodeModelMetadata,
+  parseToolCallingBridgeResponse,
 } from "./nanogpt.js";
 import { getHeader, withTimeout, type ManagedAbortSignal } from "./utils.js";
 
@@ -41,6 +44,13 @@ const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
  * normal cancellation is handled by the VS Code CancellationToken.
  */
 const STREAM_FETCH_TIMEOUT_MS = 5 * 60_000;
+
+type StreamProcessingSummary = {
+  chunkCount: number;
+  textPartCount: number;
+  reasoningPartCount: number;
+  toolCallCount: number;
+};
 
 /**
  * HTTP client for NanoGPT API endpoints.
@@ -169,6 +179,7 @@ export class NanoGptClient {
     toolMode?: "auto" | "required";
     reasoningEffort?: NanoGptReasoningEffort;
     reasoningOutput?: NanoGptReasoningOutput;
+    toolCallingStrategy?: NanoGptToolCallingStrategy;
     parallelToolCalls?: boolean;
     signal?: AbortSignal;
     requestId?: string;
@@ -179,115 +190,262 @@ export class NanoGptClient {
     const requestId = params.requestId ?? "chat";
 
     this.logger.debug(
-      `[${requestId}] HTTP POST /chat/completions (routingMode=${params.routingMode}, provider=${params.provider?.trim() || "default"}, maxTokens=${params.maxTokens ?? "default"}, toolCount=${params.tools?.length ?? 0}, toolMode=${params.toolMode ?? "default"}, reasoningEffort=${params.reasoningEffort ?? "auto"}, reasoningOutput=${params.reasoningOutput ?? "native"}, parallelToolCalls=${Boolean(params.parallelToolCalls)}, messageCount=${params.messages.length})`,
+      `[${requestId}] HTTP POST /chat/completions (routingMode=${params.routingMode}, provider=${params.provider?.trim() || "default"}, maxTokens=${params.maxTokens ?? "default"}, toolCount=${params.tools?.length ?? 0}, toolMode=${params.toolMode ?? "default"}, reasoningEffort=${params.reasoningEffort ?? "auto"}, reasoningOutput=${params.reasoningOutput ?? "native"}, toolCallingStrategy=${params.toolCallingStrategy ?? "native"}, parallelToolCalls=${Boolean(params.parallelToolCalls)}, messageCount=${params.messages.length})`,
     );
-
-    const request = buildNanoGptChatCompletionRequest({
-      apiKey: params.apiKey,
-      modelId: params.modelId,
-      messages: params.messages,
-      routingMode: params.routingMode,
-      provider: params.provider,
-      maxTokens: params.maxTokens,
-      tools: params.tools,
-      toolMode: params.toolMode,
-      reasoningEffort: params.reasoningEffort,
-      reasoningOutput: params.reasoningOutput,
-      parallelToolCalls: params.parallelToolCalls,
-    });
 
     const timeoutSignal = withTimeout(params.signal, STREAM_FETCH_TIMEOUT_MS);
 
     try {
-      const response = await this.fetchImpl(request.url, {
-        method: "POST",
-        headers: request.headers,
-        body: request.body,
-        signal: timeoutSignal.signal,
-      });
+      const toolCallingStrategy = params.toolCallingStrategy ?? "native";
+      const hasTools = Boolean(params.tools?.length);
 
-      this.logger.debug(
-        `[${requestId}] chat response received (status=${response.status}, contentType=${getHeader(response, "content-type")})`,
-      );
-
-      if (!response.ok) {
-        let message = "NanoGPT chat request failed with HTTP " + response.status;
-        try {
-          const body = await response.json() as { error?: { message?: string; code?: string; type?: string } };
-          if (body?.error?.message) {
-            message = "[NanoGPT] " + body.error.message + (body.error.type ? " (" + body.error.type + ")" : "") + (body.error.code ? " [" + body.error.code + "]" : "");
-          }
-        } catch {
-          // Use the default message if the body is not JSON.
-        }
-        throw new Error(message);
-      }
-
-      if (!response.body) {
-        this.logger.warn(`[${requestId}] chat response had no body`);
+      if (toolCallingStrategy === "bridge" && hasTools) {
+        await this.streamChatCompletionsViaBridge({
+          ...params,
+          signal: timeoutSignal.signal,
+          requestId,
+        });
         return;
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      const parser = new NanoGptSseParser();
-      let buffer = "";
-      let chunkCount = 0;
-      let textPartCount = 0;
-      let reasoningPartCount = 0;
-      let toolCallCount = 0;
+      const nativeSummary = await this.streamNativeChatCompletions({
+        ...params,
+        signal: timeoutSignal.signal,
+        requestId,
+      });
 
-      try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
-          }
-
-          chunkCount += 1;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split(/\r?\n/);
-          buffer = lines.pop() ?? "";
-
-          const parts = parser.acceptLines(lines);
-          for (const part of parts) {
-            if (part.type === "text") {
-              textPartCount += 1;
-            } else if (part.type === "reasoning") {
-              reasoningPartCount += 1;
-            } else {
-              toolCallCount += 1;
-            }
-          }
-          this.emitParts(parts, params);
-        }
-
-        buffer += decoder.decode();
-        const parts = parser.acceptLines(buffer.split(/\r?\n/));
-        for (const part of parts) {
-          if (part.type === "text") {
-            textPartCount += 1;
-          } else if (part.type === "reasoning") {
-            reasoningPartCount += 1;
-          } else {
-            toolCallCount += 1;
-          }
-        }
-        this.emitParts(parts, params);
-        this.logger.trace(
-          `[${requestId}] chat stream processed (chunks=${chunkCount}, textParts=${textPartCount}, reasoningParts=${reasoningPartCount}, toolCalls=${toolCallCount})`,
+      if (
+        toolCallingStrategy === "auto" &&
+        hasTools &&
+        nativeSummary.textPartCount === 0 &&
+        nativeSummary.toolCallCount === 0 &&
+        !timeoutSignal.signal.aborted
+      ) {
+        this.logger.warn(
+          `[${requestId}] native tool-calling produced no text or tool calls; retrying with bridge mode`,
         );
-      } finally {
-        try {
-          await reader.cancel();
-        } catch {
-          // Ignore reader teardown failures; the stream is already ending.
-        }
-        reader.releaseLock();
+        await this.streamChatCompletionsViaBridge({
+          ...params,
+          signal: timeoutSignal.signal,
+          requestId: `${requestId}:bridge`,
+        });
       }
     } finally {
       timeoutSignal.dispose();
+    }
+  }
+
+  private async streamNativeChatCompletions(params: {
+    apiKey: string;
+    modelId: string;
+    messages: readonly NanoGptChatMessage[];
+    routingMode: NanoGptRoutingMode;
+    provider?: string;
+    maxTokens?: number;
+    tools?: readonly VscodeLikeTool[];
+    toolMode?: "auto" | "required";
+    reasoningEffort?: NanoGptReasoningEffort;
+    reasoningOutput?: NanoGptReasoningOutput;
+    parallelToolCalls?: boolean;
+    signal?: AbortSignal;
+    requestId: string;
+    onText: (text: string) => void;
+    onReasoning?: (text: string) => void;
+    onToolCall?: (toolCall: Extract<NanoGptResponsePart, { type: "tool_call" }>) => void;
+  }): Promise<StreamProcessingSummary> {
+    return this.executeStreamingRequest({
+      request: buildNanoGptChatCompletionRequest({
+        apiKey: params.apiKey,
+        modelId: params.modelId,
+        messages: params.messages,
+        routingMode: params.routingMode,
+        provider: params.provider,
+        maxTokens: params.maxTokens,
+        tools: params.tools,
+        toolMode: params.toolMode,
+        reasoningEffort: params.reasoningEffort,
+        reasoningOutput: params.reasoningOutput,
+        parallelToolCalls: params.parallelToolCalls,
+      }),
+      requestId: params.requestId,
+      signal: params.signal,
+      onPart: (part) => this.emitParts([part], params),
+    });
+  }
+
+  private async streamChatCompletionsViaBridge(params: {
+    apiKey: string;
+    modelId: string;
+    messages: readonly NanoGptChatMessage[];
+    routingMode: NanoGptRoutingMode;
+    provider?: string;
+    maxTokens?: number;
+    tools?: readonly VscodeLikeTool[];
+    reasoningEffort?: NanoGptReasoningEffort;
+    reasoningOutput?: NanoGptReasoningOutput;
+    parallelToolCalls?: boolean;
+    signal?: AbortSignal;
+    requestId: string;
+    onText: (text: string) => void;
+    onReasoning?: (text: string) => void;
+    onToolCall?: (toolCall: Extract<NanoGptResponsePart, { type: "tool_call" }>) => void;
+  }): Promise<StreamProcessingSummary> {
+    const tools = params.tools ?? [];
+    const bridgeMessages = buildToolCallingBridgeMessages({
+      messages: params.messages,
+      tools,
+      parallelToolCalls: params.parallelToolCalls,
+    });
+    let bridgeText = "";
+
+    const summary = await this.executeStreamingRequest({
+      request: buildNanoGptChatCompletionRequest({
+        apiKey: params.apiKey,
+        modelId: params.modelId,
+        messages: bridgeMessages,
+        routingMode: params.routingMode,
+        provider: params.provider,
+        maxTokens: params.maxTokens,
+        reasoningEffort: params.reasoningEffort,
+        reasoningOutput: params.reasoningOutput,
+      }),
+      requestId: params.requestId,
+      signal: params.signal,
+      onPart: (part) => {
+        if (part.type === "reasoning") {
+          params.onReasoning?.(part.text);
+        } else if (part.type === "text") {
+          bridgeText += part.text;
+        }
+      },
+    });
+
+    const parsed = parseToolCallingBridgeResponse(bridgeText, tools);
+    if (parsed.kind === "tool_calls") {
+      if (parsed.content) {
+        params.onText(parsed.content);
+      }
+
+      parsed.toolCalls.forEach((toolCall, index) => {
+        params.onToolCall?.({
+          type: "tool_call",
+          callId: `bridge_call_${index + 1}`,
+          name: toolCall.name,
+          input: toolCall.input,
+        });
+      });
+
+      return summary;
+    }
+
+    if (parsed.kind === "final") {
+      params.onText(parsed.content);
+      return summary;
+    }
+
+    this.logger.warn(
+      `[${params.requestId}] tool-calling bridge response was invalid (${parsed.errorCode})`,
+    );
+    throw new Error("NanoGPT tool-calling bridge response was invalid: " + parsed.message);
+  }
+
+  private async executeStreamingRequest(params: {
+    request: ReturnType<typeof buildNanoGptChatCompletionRequest>;
+    requestId: string;
+    signal?: AbortSignal;
+    onPart: (part: NanoGptResponsePart) => void;
+  }): Promise<StreamProcessingSummary> {
+    const response = await this.fetchImpl(params.request.url, {
+      method: "POST",
+      headers: params.request.headers,
+      body: params.request.body,
+      signal: params.signal,
+    });
+
+    this.logger.debug(
+      `[${params.requestId}] chat response received (status=${response.status}, contentType=${getHeader(response, "content-type")})`,
+    );
+
+    if (!response.ok) {
+      let message = "NanoGPT chat request failed with HTTP " + response.status;
+      try {
+        const body = await response.json() as { error?: { message?: string; code?: string; type?: string } };
+        if (body?.error?.message) {
+          message = "[NanoGPT] " + body.error.message + (body.error.type ? " (" + body.error.type + ")" : "") + (body.error.code ? " [" + body.error.code + "]" : "");
+        }
+      } catch {
+        // Use the default message if the body is not JSON.
+      }
+      throw new Error(message);
+    }
+
+    if (!response.body) {
+      this.logger.warn(`[${params.requestId}] chat response had no body`);
+      return {
+        chunkCount: 0,
+        textPartCount: 0,
+        reasoningPartCount: 0,
+        toolCallCount: 0,
+      };
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const parser = new NanoGptSseParser();
+    let buffer = "";
+    const summary: StreamProcessingSummary = {
+      chunkCount: 0,
+      textPartCount: 0,
+      reasoningPartCount: 0,
+      toolCallCount: 0,
+    };
+
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        summary.chunkCount += 1;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop() ?? "";
+        this.processStreamParts(parser.acceptLines(lines), params.onPart, summary);
+      }
+
+      buffer += decoder.decode();
+      this.processStreamParts(parser.acceptLines(buffer.split(/\r?\n/)), params.onPart, summary);
+      this.processStreamParts(parser.flushPendingToolCalls(), params.onPart, summary);
+      this.logger.trace(
+        `[${params.requestId}] chat stream processed (chunks=${summary.chunkCount}, textParts=${summary.textPartCount}, reasoningParts=${summary.reasoningPartCount}, toolCalls=${summary.toolCallCount})`,
+      );
+      return summary;
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {
+        // Ignore reader teardown failures; the stream is already ending.
+      }
+      reader.releaseLock();
+    }
+  }
+
+  private processStreamParts(
+    parts: readonly NanoGptResponsePart[],
+    onPart: (part: NanoGptResponsePart) => void,
+    summary: StreamProcessingSummary,
+  ): void {
+    for (const part of parts) {
+      if (part.type === "text") {
+        summary.textPartCount += 1;
+      } else if (part.type === "reasoning") {
+        summary.reasoningPartCount += 1;
+      } else {
+        summary.toolCallCount += 1;
+      }
+
+      onPart(part);
     }
   }
 

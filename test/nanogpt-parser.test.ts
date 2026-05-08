@@ -133,4 +133,16 @@ describe("nanogpt-parser: SSE parser", () => {
     ]);
     expect(parts).toEqual([{ type: "tool_call", callId: "call_1", name: "search", input: { q: "test" } }]);
   });
+
+  test("flushes pending tool calls on EOF when no [DONE] marker arrives", () => {
+    const parser = new NanoGptSseParser();
+    const partial = parser.acceptLines([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"README.md\\"}"}}]}}]}',
+    ]);
+
+    expect(partial).toEqual([]);
+    expect(parser.flushPendingToolCalls()).toEqual([
+      { type: "tool_call", callId: "call_1", name: "read_file", input: { path: "README.md" } },
+    ]);
+  });
 });

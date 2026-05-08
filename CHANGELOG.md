@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.10
+
+- Added configurable tool-calling reliability strategies: `native`, `auto`, and `bridge`.
+- Added a strict tool-calling bridge path that rewrites tool history into a JSON-only contract and parses bridged responses back into VS Code tool calls.
+- Added a narrow automatic fallback: tool-enabled native turns that produce no visible text and no tool calls are retried once through the bridge path.
+- Fixed streamed tool-call loss on EOF by flushing pending tool calls even when providers omit `[DONE]`.
+- Added regression tests covering bridge parsing, bridge retries, direct bridge mode, and EOF tool-call flushing.
+- **Known difference:** Bridge mode strips native `tools`, `tool_choice`, and `parallel_tool_calls` from the outbound request and uses a prompt-only contract for tool selection. This means the caller's `toolMode` (auto vs required) is not forwarded in bridge mode — the bridge always lets the model decide whether to emit tool calls.
+
 ## 0.0.9
 
 - Fixed allowlist stub capabilities: unverified model stubs no longer clone `DEFAULT_MODELS[0]` capabilities. Instead they use safe pessimistic defaults (`imageInput: false`, `toolCalling: false`, `reasoning: false`) and are marked "NanoGPT (unverified)".

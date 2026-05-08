@@ -2,7 +2,7 @@
   "name": "nanogpt-provider-vscode-extension",
   "displayName": "NanoGPT Provider for VS Code",
   "description": "Bring NanoGPT models to VS Code and Copilot Chat as a language model provider.",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "repository": {
     "type": "git",
     "url": "https://github.com/deadronos/nanogpt-provider-vscode-extension"
@@ -108,6 +108,21 @@
               ],
               "default": "native",
               "description": "Controls how streamed reasoning is surfaced. Native uses VS Code's thinking part when available; visible falls back to normal text."
+            },
+            "toolCallingStrategy": {
+              "type": "string",
+              "enum": [
+                "native",
+                "auto",
+                "bridge"
+              ],
+              "enumItemLabels": [
+                "Native",
+                "Auto Retry",
+                "Bridge"
+              ],
+              "default": "native",
+              "description": "Controls tool-calling reliability mode. Native forwards NanoGPT tools directly, auto retries an empty native tool turn with a stricter bridge prompt, and bridge always uses the stricter bridge prompt."
             }
           }
         }
@@ -177,6 +192,16 @@
           ],
           "default": "native",
           "description": "Controls how streamed reasoning is surfaced. Native uses VS Code's thinking part when available; visible falls back to normal text."
+        },
+        "nanogpt.toolCallingStrategy": {
+          "type": "string",
+          "enum": [
+            "native",
+            "auto",
+            "bridge"
+          ],
+          "default": "native",
+          "description": "Controls tool-calling reliability mode. Native forwards NanoGPT tools directly, auto retries an empty native tool turn with a stricter bridge prompt, and bridge always uses the stricter bridge prompt."
         },
         "nanogpt.verboseLogging": {
           "type": "boolean",

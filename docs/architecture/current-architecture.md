@@ -26,6 +26,7 @@ flowchart LR
     NanoGptCore[src/nanogpt.ts\nBarrel + models/schema]
     NanoGptTypes[src/nanogpt-types.ts\nConstants + types]
     NanoGptMsg[src/nanogpt-message.ts\nMessage conversion]
+    NanoGptBridge[src/nanogpt-tool-bridge.ts\nTool bridge]
     NanoGptReq[src/nanogpt-request.ts\nRequest builder]
     NanoGptParser[src/nanogpt-parser.ts\nSSE parser]
     NanoGPT[NanoGPT API\n/models + /chat/completions]
@@ -40,6 +41,7 @@ flowchart LR
     Client --> Utils
     NanoGptCore --> NanoGptTypes
     NanoGptCore --> NanoGptMsg
+    NanoGptCore --> NanoGptBridge
     NanoGptCore --> NanoGptReq
     NanoGptCore --> NanoGptParser
     NanoGptCore --> Utils
@@ -98,6 +100,7 @@ Responsibilities:
 
 - Builds outbound HTTP calls using `buildNanoGptChatCompletionRequest()` from the core layer.
 - Calls `GET {baseUrl}/models?detailed=true` and `POST {baseUrl}/chat/completions`.
+- Chooses native tool calling, automatic bridge retry, or explicit bridge mode for tool-enabled turns.
 - Composes timeouts with caller cancellation (via `withTimeout` from `utils.ts`).
 - Reads streaming SSE responses using `NanoGptSseParser`.
 - Emits typed callbacks for text, reasoning, and tool calls.
@@ -130,6 +133,15 @@ Exports:
 - `toNanoGptMessages()` — converts `VscodeLikeMessage[]` → `NanoGptChatMessage[]`.
 - `toNanoGptTools()` — serializes tool definitions with 200 KB limit enforcement.
 - `getTextPartValue()`, `toNanoGptImagePart()`, `toToolCall()`, `toToolResultContent()`.
+
+#### `src/nanogpt-tool-bridge.ts`
+
+Pure tool-calling bridge transforms — no I/O, no VS Code.
+
+Exports:
+
+- `buildToolCallingBridgeMessages()` — rewrites tool history into a strict JSON-only bridge contract.
+- `parseToolCallingBridgeResponse()` — normalizes bridge JSON back into final text or tool-call intents.
 
 #### `src/nanogpt-request.ts`
 
@@ -235,6 +247,7 @@ Highest to lowest precedence:
 - `models` allowlist
 - `reasoningEffort`
 - `reasoningOutput`
+- `toolCallingStrategy`
 - `verboseLogging`
 
 The extension treats provider configuration as the most specific source because it is associated with the language-model provider flow in VS Code.

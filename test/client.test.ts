@@ -112,6 +112,117 @@ describe("NanoGptClient", () => {
     ]);
   });
 
+  test("flushes native tool calls at EOF when the stream ends without [DONE]", async () => {
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"a.txt\\"}"}}]}}]}\n\n',
+        ]),
+        { status: 200 },
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Read a.txt" }],
+      routingMode: "subscription",
+      onText: () => {},
+      onToolCall: (toolCall) => toolCalls.push(toolCall),
+    });
+
+    expect(toolCalls).toEqual([
+      { type: "tool_call", callId: "call_1", name: "read_file", input: { path: "a.txt" } },
+    ]);
+  });
+
+  test("retries an empty native tool turn with bridge mode when strategy is auto", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"reasoning":"Thinking"}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"{\\"v\\":1,\\"mode\\":\\"tool\\",\\"message\\":\\"I will inspect the file.\\",\\"tool_calls\\":[{\\"name\\":\\"read_file\\",\\"arguments\\":{\\"path\\":\\"README.md\\"}}]}"}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const texts: string[] = [];
+    const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Read the README" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      toolCallingStrategy: "auto",
+      onText: (text) => texts.push(text),
+      onToolCall: (toolCall) => toolCalls.push(toolCall),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(texts).toEqual(["I will inspect the file."]);
+    expect(toolCalls).toEqual([
+      {
+        type: "tool_call",
+        callId: "bridge_call_1",
+        name: "read_file",
+        input: { path: "README.md" },
+      },
+    ]);
+  });
+
+  test("uses bridge mode directly when configured", async () => {
+    const fetchCalls: Array<[string | URL | Request, RequestInit | undefined]> = [];
+    const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push([input, init]);
+      return new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"content":"{\\"v\\":1,\\"mode\\":\\"final\\",\\"message\\":\\"Done.\\"}"}}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+        { status: 200 },
+      );
+    };
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const texts: string[] = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Finish" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      toolCallingStrategy: "bridge",
+      onText: (text) => texts.push(text),
+    });
+
+    expect(texts).toEqual(["Done."]);
+    const bridgeRequest = JSON.parse(String(fetchCalls[0]?.[1]?.body ?? "{}")) as {
+      tools?: unknown;
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    expect(bridgeRequest.tools).toBeUndefined();
+    expect(bridgeRequest.messages?.[0]?.role).toBe("system");
+    expect(String(bridgeRequest.messages?.[0]?.content)).toContain("Structured Tool-Calling Contract");
+  });
+
   test("throws with NanoGPT JSON error body", async () => {
     const fetchImpl = async () =>
       new Response(

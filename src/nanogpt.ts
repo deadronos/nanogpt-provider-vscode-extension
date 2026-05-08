@@ -14,6 +14,7 @@ export type {
   NanoGptToolCall,
   NanoGptToolDefinition,
   NanoGptChatMessage,
+  NanoGptToolCallingStrategy,
   VscodeLikePart,
   VscodeLikeMessage,
   NanoGptModelCapabilities,
@@ -35,6 +36,15 @@ export {
   toToolResultContent,
   getTextPartValue,
 } from "./nanogpt-message.js";
+
+export {
+  buildToolCallingBridgeMessages,
+  parseToolCallingBridgeResponse,
+} from "./nanogpt-tool-bridge.js";
+export type {
+  NanoGptBridgeToolCall,
+  NanoGptToolBridgeParseResult,
+} from "./nanogpt-tool-bridge.js";
 
 export { buildNanoGptChatCompletionRequest } from "./nanogpt-request.js";
 
@@ -125,6 +135,14 @@ export function buildModelConfigurationSchema(): VscodeModelMetadata["configurat
         enumItemLabels: ["Native", "Hidden", "Visible fallback"],
         default: "native",
         description: "Controls how streamed reasoning is surfaced by VS Code.",
+      },
+      toolCallingStrategy: {
+        type: "string",
+        enum: ["native", "auto", "bridge"],
+        enumItemLabels: ["Native", "Auto Retry", "Bridge"],
+        default: "native",
+        description:
+          "Controls tool-calling reliability mode. Native forwards NanoGPT tools directly, auto retries an empty native tool turn with a stricter bridge prompt, and bridge always uses the stricter bridge prompt.",
       },
     },
   };
