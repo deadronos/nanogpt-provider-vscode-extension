@@ -96,6 +96,7 @@ Chat execution is exposed through `provideLanguageModelChatResponse()`.
    - provider
    - reasoning effort
    - reasoning output
+  - tool-calling strategy
    - max tokens
    - tool mode
 5. Summarize input messages and tools for sanitized logging.
@@ -104,11 +105,13 @@ Chat execution is exposed through `provideLanguageModelChatResponse()`.
 
 ### Transport execution
 
-1. `client.streamChatCompletions()` builds the final HTTP request.
-2. The client performs a streaming `POST`.
-3. The client reads the SSE body incrementally.
-4. SSE deltas are converted to typed response parts.
-5. The provider maps those parts to VS Code response parts and reports them via `progress.report(...)`.
+1. `client.streamChatCompletions()` selects `native`, `auto`, or `bridge` tool-calling behavior.
+2. The client builds the final HTTP request.
+3. The client performs a streaming `POST`.
+4. The client reads the SSE body incrementally.
+5. SSE deltas are converted to typed response parts.
+6. In `auto`, a tool-enabled native turn that yields no visible text and no tool calls is retried once with the bridge prompt.
+7. The provider maps those parts to VS Code response parts and reports them via `progress.report(...)`.
 
 ### Response mapping
 
@@ -123,6 +126,7 @@ sequenceDiagram
     participant Provider
     participant VscMsg as src/vscode-messaging.ts
     participant Core as src/nanogpt-message.ts
+    participant Bridge as src/nanogpt-tool-bridge.ts
     participant Req as src/nanogpt-request.ts
     participant Client
     participant NanoGPT
@@ -132,13 +136,23 @@ sequenceDiagram
     Provider->>VscMsg: toCoreMessages(messages)
     Provider->>Core: toNanoGptMessages(coreMessages)
     Provider->>Client: streamChatCompletions(...)
-    Client->>Req: buildNanoGptChatCompletionRequest(...)
+    alt toolCallingStrategy = bridge
+      Client->>Bridge: buildToolCallingBridgeMessages(...)
+      Bridge-->>Client: rewritten bridge messages
+      Client->>Req: buildNanoGptChatCompletionRequest(..., tools omitted)
+    else toolCallingStrategy = native or auto
+      Client->>Req: buildNanoGptChatCompletionRequest(...)
+    end
     Client->>NanoGPT: POST /chat/completions (stream=true)
     loop SSE stream
         NanoGPT-->>Client: data: { choices: [...] }
         Client->>Core: NanoGptSseParser.acceptLines(...)
         Core-->>Client: text/reasoning/tool_call parts
-        Client-->>Provider: callbacks
+      alt bridge response parsing
+        Client->>Bridge: parseToolCallingBridgeResponse(text)
+        Bridge-->>Client: final text or tool calls
+      end
+      Client-->>Provider: callbacks
         Provider-->>VSCode: progress.report(parts)
     end
 ```
@@ -161,12 +175,12 @@ It controls:
 
 Current reasoning behavior:
 
-- `hidden` -> `reasoning: { exclude: true }`
+- `hidden` -> omit the `reasoning` field entirely
 - `native` or `visible` -> `reasoning: { exclude: false }`
 
 ## 5. Tool-Calling Flow
 
-Tool support appears in three places.
+Tool support appears in four places.
 
 ### Input history translation
 
@@ -192,12 +206,24 @@ Tool support appears in three places.
 
 The serialized tool payload is rejected if it exceeds 200 KB.
 
+### Optional bridge translation
+
+`buildToolCallingBridgeMessages()` rewrites tool-enabled turns into a stricter JSON-only contract when `toolCallingStrategy` is `bridge`, or when `auto` retries an empty native tool turn.
+
+Bridge behavior:
+
+- system prompts are folded into one inherited bridge instruction
+- assistant `tool_calls` history becomes assistant JSON text
+- `role: "tool"` history becomes user-visible tool-result text with an anti-repeat instruction
+- native `tools`, `tool_choice`, and `parallel_tool_calls` are omitted from the retried bridge request
+
 ### Streamed tool call parsing
 
 `NanoGptSseParser` accumulates partial tool-call chunks by index and flushes completed calls when:
 
 - `finish_reason === "tool_calls"`, or
-- `[DONE]` is received
+- `[DONE]` is received, or
+- the stream reaches EOF and `flushPendingToolCalls()` is called
 
 If tool arguments fail JSON parsing, the extension degrades to `{}`.
 

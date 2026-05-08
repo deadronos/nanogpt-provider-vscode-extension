@@ -108,6 +108,9 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
         reasoningEffort: {
           enum: ["auto", "none", "minimal", "low", "medium", "high", "xhigh"],
         },
+        toolCallingStrategy: {
+          enum: ["native", "auto", "bridge"],
+        },
       },
     });
   });

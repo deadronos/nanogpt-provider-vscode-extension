@@ -25,6 +25,7 @@ Source files organized into three layers with focused modules:
 | `src/utils.ts` | Shared | Cross-cutting helpers (abort/timeout composition, formatting, type guards) |
 | `src/nanogpt-types.ts` | Core | API constants, type definitions, `resolveRole`. No VS Code API, no I/O. |
 | `src/nanogpt-message.ts` | Core | Message/part conversion, tool serialization. No VS Code API, no I/O. |
+| `src/nanogpt-tool-bridge.ts` | Core | Tool-calling bridge prompt builder, history rewrite, and bridge-response normalization. No VS Code API, no I/O. |
 | `src/nanogpt-request.ts` | Core | Request body/header builder. No VS Code API, no I/O. |
 | `src/nanogpt-parser.ts` | Core | SSE parser and collectors. No VS Code API, no I/O. |
 | `src/nanogpt.ts` | Core | Barrel re-exports, model mapping, schema builder, token estimation. No VS Code API, no I/O. |
@@ -41,7 +42,9 @@ Tests live in `test/` and run under Vitest in plain Node — no VS Code APIs are
 
 **`reasoningEffort: "auto"` is an extension-local sentinel** — It means "omit the field", not "send `auto` to NanoGPT". The seven actual values sent to the API are `none | minimal | low | medium | high | xhigh`.
 
-**Coupled schema changes** — When modifying `NanoGptReasoningEffort` or adding config options, update all relevant locations together: `src/nanogpt-types.ts` (type), `src/nanogpt.ts` (schema), `src/config.ts` (validator), `package.json` (contribution schema), and tests.
+**Coupled schema changes** — When modifying `NanoGptReasoningEffort`, `NanoGptToolCallingStrategy`, or adding config options, update all relevant locations together: `src/nanogpt-types.ts` (type), `src/nanogpt.ts` (schema), `src/config.ts` (validator), `package.json` (contribution schema), and tests.
+
+**Tool-calling reliability strategies** — `toolCallingStrategy` is extension-local and supports `native | auto | bridge`. `auto` means native tools first, then a single bridge retry only when a tool-enabled native turn yields no visible text and no tool calls. `bridge` rewrites tool history into text plus a strict JSON contract using `src/nanogpt-tool-bridge.ts`.
 
 **`buildModelConfigurationSchema()`** — Must be called per model in `DEFAULT_MODELS` and in model discovery results so VS Code exposes per-provider config fields at both discovery and chat-response time.
 

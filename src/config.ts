@@ -4,6 +4,7 @@ import {
   type NanoGptReasoningEffort,
   type NanoGptReasoningOutput,
   type NanoGptRoutingMode,
+  type NanoGptToolCallingStrategy,
   type VscodeModelMetadata,
 } from "./nanogpt.js";
 
@@ -41,6 +42,7 @@ export type ProviderConfiguration = {
   models?: unknown;
   reasoningEffort?: unknown;
   reasoningOutput?: unknown;
+  toolCallingStrategy?: unknown;
 };
 
 // ── Configuration helpers ────────────────────────────────────────────────────
@@ -141,6 +143,24 @@ export function getReasoningOutput(
         : getConfig().get<string>("reasoningOutput", "native");
 
   return value === "hidden" || value === "visible" || value === "native" ? value : "native";
+}
+
+/**
+ * Resolves the tool-calling strategy from model options, provider
+ * configuration, or workspace settings. Defaults to `"native"`.
+ */
+export function getToolCallingStrategy(
+  providerConfiguration?: ProviderConfiguration,
+  modelOptions?: { readonly [name: string]: unknown },
+): NanoGptToolCallingStrategy {
+  const value =
+    typeof modelOptions?.toolCallingStrategy === "string"
+      ? modelOptions.toolCallingStrategy
+      : typeof providerConfiguration?.toolCallingStrategy === "string"
+        ? providerConfiguration.toolCallingStrategy
+        : getConfig().get<string>("toolCallingStrategy", "native");
+
+  return value === "auto" || value === "bridge" || value === "native" ? value : "native";
 }
 
 /**

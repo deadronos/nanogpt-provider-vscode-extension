@@ -130,6 +130,14 @@ export class NanoGptSseParser {
   }
 
   /**
+   * Flushes any completed tool calls that were buffered but never followed by
+   * `finish_reason === "tool_calls"` or a `[DONE]` marker before EOF.
+   */
+  flushPendingToolCalls(): NanoGptResponsePart[] {
+    return this.flushToolCalls();
+  }
+
+  /**
    * Flushes all accumulated tool calls, sorted by index, and
    * parses their serialised arguments. Skips calls with missing
    * `id` or `name` and falls back to `{}` when JSON parsing fails.
