@@ -247,13 +247,13 @@ export class NanoGptClient {
     const requestId = params.requestId ?? "chat";
 
     this.logger.debug(
-      `[${requestId}] HTTP POST /chat/completions (routingMode=${params.routingMode}, provider=${params.provider?.trim() || "default"}, maxTokens=${params.maxTokens ?? "default"}, toolCount=${params.tools?.length ?? 0}, toolMode=${params.toolMode ?? "default"}, reasoningEffort=${params.reasoningEffort ?? "auto"}, reasoningOutput=${params.reasoningOutput ?? "native"}, toolCallingStrategy=${params.toolCallingStrategy ?? "native"}, parallelToolCalls=${Boolean(params.parallelToolCalls)}, messageCount=${params.messages.length})`,
+      `[${requestId}] HTTP POST /chat/completions (routingMode=${params.routingMode}, provider=${params.provider?.trim() || "default"}, maxTokens=${params.maxTokens ?? "default"}, toolCount=${params.tools?.length ?? 0}, toolMode=${params.toolMode ?? "default"}, reasoningEffort=${params.reasoningEffort ?? "auto"}, reasoningOutput=${params.reasoningOutput ?? "native"}, toolCallingStrategy=${params.toolCallingStrategy ?? "auto"}, parallelToolCalls=${Boolean(params.parallelToolCalls)}, messageCount=${params.messages.length})`,
     );
 
     const timeoutSignal = withTimeout(params.signal, STREAM_FETCH_TIMEOUT_MS);
 
     try {
-      const toolCallingStrategy = params.toolCallingStrategy ?? "native";
+      const toolCallingStrategy = params.toolCallingStrategy ?? "auto";
       const hasTools = Boolean(params.tools?.length);
       const shouldBufferNativeTurn = toolCallingStrategy === "auto" && hasTools;
       const bufferedNativeParts: NanoGptResponsePart[] = [];

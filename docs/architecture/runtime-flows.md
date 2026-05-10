@@ -208,7 +208,7 @@ The serialized tool payload is rejected if it exceeds 200 KB.
 
 ### Optional bridge translation
 
-`buildToolCallingBridgeMessages()` rewrites tool-enabled turns into a stricter JSON-only contract when `toolCallingStrategy` is `bridge`, or when `auto` retries an empty native tool turn.
+`buildToolCallingBridgeMessages()` rewrites tool-enabled turns into a stricter JSON-only contract when `toolCallingStrategy` is `bridge`, or when `auto` retries an empty or likely scaffolding-only native tool turn.
 
 Bridge behavior:
 

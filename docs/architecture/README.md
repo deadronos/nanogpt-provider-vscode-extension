@@ -55,7 +55,7 @@ Implemented today:
 - Provider-scoped and workspace-scoped configuration for routing, provider, reasoning, tool-calling strategy, and optional model allowlists.
 - API key resolution from provider config, secret storage, settings, and environment fallback.
 - NanoGPT model discovery for `subscription` and `paygo` routing modes.
-- Streaming chat completions with text, reasoning, and tool call support, including `native`, `auto`, and `bridge` tool-calling strategies.
+- Streaming chat completions with text, reasoning, and tool call support, including `native`, `auto`, and `bridge` tool-calling strategies. `auto` is the default.
 - In `auto` mode, native tool turns are buffered so the client can retry once through the bridge path when a model emits no tool calls and only low-signal scaffolding text.
 - Vision/image input via `LanguageModelDataPart` image payload conversion.
 - Approximate token counting for strings and request messages.

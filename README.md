@@ -88,6 +88,7 @@ The extension contributes the following settings:
 | `nanogpt.models` | Optional model allowlist. Leave empty to discover models automatically. |
 | `nanogpt.reasoningEffort` | Optional reasoning effort for reasoning-capable models. |
 | `nanogpt.reasoningOutput` | Controls how streamed reasoning output is shown. |
+| `nanogpt.toolCallingStrategy` | Controls tool-calling reliability. Defaults to `auto`, which retries empty or scaffolding-only native tool turns once through the stricter bridge path. |
 
 ### Reasoning output modes
 

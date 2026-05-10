@@ -185,7 +185,8 @@ Invariants:
 - tool schema payload larger than 200 KB throws before the request is sent
 - malformed streamed tool arguments degrade to `{}` rather than crash the stream
 - `toolCallingStrategy` is extension-local and accepts `native | auto | bridge`
-- `auto` retries at most once, and only when a tool-enabled native turn yields no visible text and no tool calls
+- `toolCallingStrategy` defaults to `auto` when omitted or invalid
+- `auto` retries at most once, and only when a tool-enabled native turn yields no tool calls and either no visible text or only low-signal scaffolding text
 - `bridge` rewrites tool history into plain messages plus a strict JSON-only system contract
 - pending streamed tool calls are flushed at EOF via `flushPendingToolCalls()` so providers that omit `[DONE]` do not silently lose tool calls
 

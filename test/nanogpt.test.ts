@@ -110,6 +110,7 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
         },
         toolCallingStrategy: {
           enum: ["native", "auto", "bridge"],
+          default: "auto",
         },
       },
     });
@@ -246,6 +247,7 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     const schemaProps = buildModelConfigurationSchema().properties;
 
     expect(Object.keys(schemaProps).sort()).toEqual(Object.keys(pkgProps).sort());
+    expect(schemaProps.toolCallingStrategy).toEqual(pkgProps.toolCallingStrategy);
   });
 
   test("prefers canonicalId over id when both are present", () => {

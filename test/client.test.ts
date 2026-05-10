@@ -236,6 +236,54 @@ describe("NanoGptClient", () => {
     ]);
   });
 
+  test("defaults tool-enabled turns to auto retry mode when strategy is omitted", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"I\'ll start by reading the key source files and architecture docs to get a thorough understanding of the project before reviewing it."}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"{\\"v\\":1,\\"mode\\":\\"tool\\",\\"message\\":\\"I will inspect the file.\\",\\"tool_calls\\":[{\\"name\\":\\"read_file\\",\\"arguments\\":{\\"path\\":\\"README.md\\"}}]}"}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const texts: string[] = [];
+    const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Review the project" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      onText: (text) => texts.push(text),
+      onToolCall: (toolCall) => toolCalls.push(toolCall),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(texts).toEqual(["I will inspect the file."]);
+    expect(toolCalls).toEqual([
+      {
+        type: "tool_call",
+        callId: "bridge_call_1",
+        name: "read_file",
+        input: { path: "README.md" },
+      },
+    ]);
+  });
+
   test("preserves substantive native text answers in auto mode", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockImplementationOnce(async () =>
       new Response(
