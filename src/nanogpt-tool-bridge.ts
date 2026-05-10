@@ -376,6 +376,7 @@ function normalizeToolCall(
 
   const input = normalizeToolArguments(argsSource);
   const flattened = { ...(input as Record<string, unknown>) };
+  const usedFlattenedArgsFallback = argsSource === undefined;
   const skipKeys = new Set([
     "name",
     "tool_name",
@@ -391,7 +392,8 @@ function normalizeToolCall(
   ]);
 
   for (const [key, value] of Object.entries(parsedCandidate)) {
-    if (!skipKeys.has(key) && !(key in flattened)) {
+    const shouldPreserveFlattenedFallbackKey = usedFlattenedArgsFallback && ["id", "type"].includes(key);
+    if ((shouldPreserveFlattenedFallbackKey || !skipKeys.has(key)) && !(key in flattened)) {
       flattened[key] = value;
     }
   }
@@ -472,12 +474,14 @@ function normalizeBridgeResponseText(text: string): string | undefined {
 export function buildToolCallingBridgeMessages(params: {
   messages: readonly NanoGptChatMessage[];
   tools: readonly VscodeLikeTool[];
+  toolMode?: "auto" | "required";
   parallelToolCalls?: boolean;
 }): NanoGptChatMessage[] {
   const inheritedSystemText = collectSystemText(params.messages);
   const manifest = JSON.stringify(buildToolManifest(params.tools), null, 2);
   const toolNameById = buildToolCallNameMap(params.messages);
   const parallelAllowed = params.parallelToolCalls !== false;
+  const toolCallsRequired = params.toolMode === "required";
   const exampleTool = params.tools[0];
   const exampleArguments = exampleTool?.inputSchema && typeof exampleTool.inputSchema === "object"
     ? Object.fromEntries(
@@ -509,6 +513,9 @@ export function buildToolCallingBridgeMessages(params: {
     '- Prefer each tool call to use "name" and an "arguments" object.',
     '- If other instructions ask for commentary, progress updates, plans, or final answers, satisfy them inside the "message" field.',
     '- Never emit channel labels or plain prose outside the JSON object.',
+    toolCallsRequired
+      ? '- Tool calls are required for this turn. Choose the most relevant tool instead of returning final text.'
+      : '- Use "clarify" when you genuinely need user input before any tool can run safely.',
     parallelAllowed
       ? '- You may emit multiple tool calls only when they are clearly independent.'
       : '- Emit exactly one tool call when mode is "tool".',

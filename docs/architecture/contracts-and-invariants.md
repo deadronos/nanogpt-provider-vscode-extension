@@ -187,7 +187,7 @@ Invariants:
 - `toolCallingStrategy` is extension-local and accepts `native | auto | bridge`
 - `toolCallingStrategy` defaults to `auto` when omitted or invalid
 - `auto` retries at most once, and only when a tool-enabled native turn yields no tool calls and either no visible text or only low-signal scaffolding text
-- `bridge` rewrites tool history into plain messages plus a strict JSON-only system contract
+- `bridge` rewrites tool history into plain messages plus a strict JSON-only system contract, and preserves `toolMode: "required"` through prompt instructions rather than native `tool_choice`
 - when a bridged model reply contains visible prose but omits the required JSON object entirely, the client surfaces an explicit raw-text fallback warning instead of presenting it as a normal final answer
 - pending streamed tool calls are flushed at EOF via `flushPendingToolCalls()` so providers that omit `[DONE]` do not silently lose tool calls
 

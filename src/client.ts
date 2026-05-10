@@ -192,6 +192,12 @@ export class NanoGptClient {
           ? (payload as { data: unknown[] }).data
           : [];
 
+      if (!Array.isArray(payload) && entries.length === 0) {
+        this.logger.warn(
+          `[${requestId}] model discovery payload had unexpected shape; treating it as empty`,
+        );
+      }
+
       this.logger.trace(
         `[${requestId}] model discovery payload parsed (entryCount=${entries.length})`,
       );
@@ -362,6 +368,7 @@ export class NanoGptClient {
     provider?: string;
     maxTokens?: number;
     tools?: readonly VscodeLikeTool[];
+    toolMode?: "auto" | "required";
     reasoningEffort?: NanoGptReasoningEffort;
     reasoningOutput?: NanoGptReasoningOutput;
     parallelToolCalls?: boolean;
@@ -375,6 +382,7 @@ export class NanoGptClient {
     const bridgeMessages = buildToolCallingBridgeMessages({
       messages: params.messages,
       tools,
+      toolMode: params.toolMode,
       parallelToolCalls: params.parallelToolCalls,
     });
     let bridgeText = "";

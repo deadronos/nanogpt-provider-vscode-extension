@@ -393,6 +393,64 @@ describe("NanoGptClient", () => {
     expect(String(bridgeRequest.messages?.[0]?.content)).toContain("Structured Tool-Calling Contract");
   });
 
+  test("carries required tool mode into the bridge prompt", async () => {
+    const fetchCalls: Array<[string | URL | Request, RequestInit | undefined]> = [];
+    const fetchImpl = async (input: string | URL | Request, init?: RequestInit) => {
+      fetchCalls.push([input, init]);
+      return new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"content":"{\\"v\\":1,\\"mode\\":\\"tool\\",\\"message\\":\\"I will inspect the file.\\",\\"tool_calls\\":[{\\"name\\":\\"read_file\\",\\"arguments\\":{\\"path\\":\\"README.md\\"}}]}"}}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+        { status: 200 },
+      );
+    };
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Read the README" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      toolCallingStrategy: "bridge",
+      toolMode: "required",
+      onText: () => {},
+      onToolCall: () => {},
+    });
+
+    const bridgeRequest = JSON.parse(String(fetchCalls[0]?.[1]?.body ?? "{}")) as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    expect(String(bridgeRequest.messages?.[0]?.content)).toContain(
+      "Tool calls are required for this turn.",
+    );
+  });
+
+  test("warns when model discovery returns an unexpected JSON shape", async () => {
+    const { logger, entries } = createLoggerSink();
+    const client = new NanoGptClient(
+      (async () =>
+        new Response(JSON.stringify({ models: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })) as typeof fetch,
+      logger,
+    );
+
+    const models = await client.discoverModels({
+      apiKey: "test-key",
+      routingMode: "subscription",
+      requestId: "discovery-shape",
+    });
+
+    expect(models).toEqual([]);
+    expect(entries).toContain(
+      "warn:[discovery-shape] model discovery payload had unexpected shape; treating it as empty",
+    );
+  });
+
   test("throws with NanoGPT JSON error body", async () => {
     const fetchImpl = async () =>
       new Response(
