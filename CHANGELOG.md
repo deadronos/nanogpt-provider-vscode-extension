@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.11
+
 - Fixed `toolCallingStrategy: "auto"` so tool-enabled native turns are buffered long enough to detect low-signal scaffolding replies with no tool calls, then retried once through the bridge path.
 - Added regression coverage to ensure scaffolding-only native turns retry through the bridge while substantive native text answers still pass through unchanged.
 
