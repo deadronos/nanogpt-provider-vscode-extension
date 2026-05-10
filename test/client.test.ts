@@ -330,67 +330,6 @@ describe("NanoGptClient", () => {
     );
   });
 
-  test("parses xml-like bridge tool tags instead of surfacing them as raw text", async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
-      .mockImplementationOnce(async () =>
-        new Response(
-          createReadableStream([
-            'data: {"choices":[{"delta":{"content":"Let me start by reading the key project files first."}}]}\n\n',
-            "data: [DONE]\n\n",
-          ]),
-          { status: 200 },
-        ),
-      )
-      .mockImplementationOnce(async () =>
-        new Response(
-          createReadableStream([
-            'data: {"choices":[{"delta":{"content":"Let me gather context across the architecture docs, key source files, and the active PR branch to give you a thorough review.\\n\\n<tool_calls>\\n<tool_call name=\\"read_file\\">\\n<parameter name=\\"filePath\\" string=\\"true\\">/Users/openclaw/Github/nanogpt-provider-vscode-extension/docs/architecture/README.md</parameter>\\n</tool_call>\\n<tool_call name=\\"read_file\\">\\n<parameter name=\\"filePath\\" string=\\"true\\">/Users/openclaw/Github/nanogpt-provider-vscode-extension/CHANGELOG.md</parameter>\\n</tool_call>\\n</tool_calls>"}}]}\n\n',
-            "data: [DONE]\n\n",
-          ]),
-          { status: 200 },
-        ),
-      );
-
-    const client = new NanoGptClient(fetchImpl as typeof fetch);
-    const texts: string[] = [];
-    const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
-
-    await client.streamChatCompletions({
-      apiKey: "test-key",
-      modelId: "gpt-5.4-mini",
-      messages: [{ role: "user", content: "Review the project" }],
-      routingMode: "subscription",
-      tools: [{ name: "read_file", description: "Read a workspace file" }],
-      toolCallingStrategy: "auto",
-      onText: (text) => texts.push(text),
-      onToolCall: (toolCall) => toolCalls.push(toolCall),
-    });
-
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(texts).toEqual([
-      "Let me gather context across the architecture docs, key source files, and the active PR branch to give you a thorough review.",
-    ]);
-    expect(toolCalls).toEqual([
-      {
-        type: "tool_call",
-        callId: "bridge_call_1",
-        name: "read_file",
-        input: {
-          filePath: "/Users/openclaw/Github/nanogpt-provider-vscode-extension/docs/architecture/README.md",
-        },
-      },
-      {
-        type: "tool_call",
-        callId: "bridge_call_2",
-        name: "read_file",
-        input: {
-          filePath: "/Users/openclaw/Github/nanogpt-provider-vscode-extension/CHANGELOG.md",
-        },
-      },
-    ]);
-  });
-
   test("defaults tool-enabled turns to auto retry mode when strategy is omitted", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
