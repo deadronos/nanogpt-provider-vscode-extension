@@ -52,6 +52,63 @@ type StreamProcessingSummary = {
   toolCallCount: number;
 };
 
+function normalizeRetryHeuristicText(text: string): string {
+  return text.replace(/[\u2018\u2019]/g, "'").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function isLikelyToolScaffoldingText(text: string): boolean {
+  const normalized = normalizeRetryHeuristicText(text);
+  if (!normalized || normalized.length > 240) {
+    return false;
+  }
+
+  const sentenceCount = normalized
+    .split(/[.!?]+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean).length;
+  if (sentenceCount > 2) {
+    return false;
+  }
+
+  const startsLikeScaffolding =
+    /^(?:ok(?:ay)?[, ]+|sure[, ]+|alright[, ]+|first[, ]+|to start[, ]+|let me\b|i(?:'m| am)\b|i(?:'ll| will)\b)/.test(
+      normalized,
+    );
+  const hasInspectionVerb =
+    /\b(?:read|reading|check|checking|inspect|inspecting|review|reviewing|look|looking|search|searching|trace|tracing|examine|examining|investigate|investigating|scan|scanning|open|opening|load|loading|analyze|analyzing|analyse|analysing|debug|debugging|explore|exploring|find|finding|start|starting|begin|beginning)\b/.test(
+      normalized,
+    );
+
+  return startsLikeScaffolding && hasInspectionVerb;
+}
+
+function collectTextParts(parts: readonly NanoGptResponsePart[]): string {
+  return parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+}
+
+function getAutoBridgeRetryReason(params: {
+  hasTools: boolean;
+  toolCallingStrategy: NanoGptToolCallingStrategy;
+  nativeSummary: StreamProcessingSummary;
+  nativeText: string;
+  aborted: boolean;
+}): "empty" | "scaffolding" | undefined {
+  if (
+    params.toolCallingStrategy !== "auto" ||
+    !params.hasTools ||
+    params.aborted ||
+    params.nativeSummary.toolCallCount > 0
+  ) {
+    return undefined;
+  }
+
+  if (params.nativeSummary.textPartCount === 0) {
+    return "empty";
+  }
+
+  return isLikelyToolScaffoldingText(params.nativeText) ? "scaffolding" : undefined;
+}
+
 /**
  * HTTP client for NanoGPT API endpoints.
  *
@@ -198,6 +255,8 @@ export class NanoGptClient {
     try {
       const toolCallingStrategy = params.toolCallingStrategy ?? "native";
       const hasTools = Boolean(params.tools?.length);
+      const shouldBufferNativeTurn = toolCallingStrategy === "auto" && hasTools;
+      const bufferedNativeParts: NanoGptResponsePart[] = [];
 
       if (toolCallingStrategy === "bridge" && hasTools) {
         await this.streamChatCompletionsViaBridge({
@@ -212,23 +271,42 @@ export class NanoGptClient {
         ...params,
         signal: timeoutSignal.signal,
         requestId,
+        onText: shouldBufferNativeTurn
+          ? (text) => bufferedNativeParts.push({ type: "text", text })
+          : params.onText,
+        onReasoning: shouldBufferNativeTurn
+          ? (text) => bufferedNativeParts.push({ type: "reasoning", text })
+          : params.onReasoning,
+        onToolCall: shouldBufferNativeTurn
+          ? (toolCall) => bufferedNativeParts.push(toolCall)
+          : params.onToolCall,
       });
 
-      if (
-        toolCallingStrategy === "auto" &&
-        hasTools &&
-        nativeSummary.textPartCount === 0 &&
-        nativeSummary.toolCallCount === 0 &&
-        !timeoutSignal.signal.aborted
-      ) {
+      const bridgeRetryReason = getAutoBridgeRetryReason({
+        hasTools,
+        toolCallingStrategy,
+        nativeSummary,
+        nativeText: collectTextParts(bufferedNativeParts),
+        aborted: timeoutSignal.signal.aborted,
+      });
+      if (bridgeRetryReason) {
+        const retryReasonMessage =
+          bridgeRetryReason === "empty"
+            ? "no text or tool calls"
+            : "likely scaffolding text without tool calls";
         this.logger.warn(
-          `[${requestId}] native tool-calling produced no text or tool calls; retrying with bridge mode`,
+          `[${requestId}] native tool-calling produced ${retryReasonMessage}; retrying with bridge mode`,
         );
         await this.streamChatCompletionsViaBridge({
           ...params,
           signal: timeoutSignal.signal,
           requestId: `${requestId}:bridge`,
         });
+        return;
+      }
+
+      if (shouldBufferNativeTurn) {
+        this.emitParts(bufferedNativeParts, params);
       }
     } finally {
       timeoutSignal.dispose();
