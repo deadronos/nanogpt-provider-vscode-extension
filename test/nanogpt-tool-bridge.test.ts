@@ -41,6 +41,7 @@ describe("nanogpt-tool-bridge", () => {
     expect(String(messages[0]?.content)).toContain('"mode"');
     expect(String(messages[0]?.content)).toContain("Keep replies short.");
     expect(String(messages[0]?.content)).toContain("Emit exactly one tool call");
+    expect(String(messages[0]?.content)).toContain('satisfy them inside the "message" field');
 
     expect(messages[1]).toEqual({
       role: "assistant",

@@ -236,6 +236,49 @@ describe("NanoGptClient", () => {
     ]);
   });
 
+  test("falls back to raw bridge text when the retried bridge turn omits JSON entirely", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"Let me start by reading the key project files and configuration."}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"I will inspect the relevant files and then summarize the findings."}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      );
+
+    const { logger, entries } = createLoggerSink();
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const texts: string[] = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Review the project" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      toolCallingStrategy: "auto",
+      onText: (text) => texts.push(text),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(texts).toEqual(["I will inspect the relevant files and then summarize the findings."]);
+    expect(entries).toContain(
+      "warn:[chat:bridge] tool-calling bridge response omitted JSON; falling back to raw text",
+    );
+  });
+
   test("defaults tool-enabled turns to auto retry mode when strategy is omitted", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()

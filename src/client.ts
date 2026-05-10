@@ -421,6 +421,15 @@ export class NanoGptClient {
       return summary;
     }
 
+    const fallbackBridgeText = bridgeText.trim();
+    if (parsed.errorCode === "missing_bridge_object_turn" && fallbackBridgeText) {
+      this.logger.warn(
+        `[${params.requestId}] tool-calling bridge response omitted JSON; falling back to raw text`,
+      );
+      params.onText(fallbackBridgeText);
+      return summary;
+    }
+
     this.logger.warn(
       `[${params.requestId}] tool-calling bridge response was invalid (${parsed.errorCode})`,
     );

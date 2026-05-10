@@ -507,6 +507,8 @@ export function buildToolCallingBridgeMessages(params: {
     '- When mode is "tool", "tool_calls" must be a non-empty array.',
     '- When mode is "final" or "clarify", do not include "tool_calls".',
     '- Prefer each tool call to use "name" and an "arguments" object.',
+    '- If other instructions ask for commentary, progress updates, plans, or final answers, satisfy them inside the "message" field.',
+    '- Never emit channel labels or plain prose outside the JSON object.',
     parallelAllowed
       ? '- You may emit multiple tool calls only when they are clearly independent.'
       : '- Emit exactly one tool call when mode is "tool".',
