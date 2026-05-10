@@ -45,6 +45,9 @@ const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
  */
 const STREAM_FETCH_TIMEOUT_MS = 5 * 60_000;
 
+const BRIDGE_RAW_TEXT_FALLBACK_PREFIX =
+  "Warning: NanoGPT bridge mode returned plain text instead of the required JSON tool-calling contract. Treating the raw reply below as a best-effort fallback.\n\n";
+
 type StreamProcessingSummary = {
   chunkCount: number;
   textPartCount: number;
@@ -426,7 +429,7 @@ export class NanoGptClient {
       this.logger.warn(
         `[${params.requestId}] tool-calling bridge response omitted JSON; falling back to raw text`,
       );
-      params.onText(fallbackBridgeText);
+      params.onText(BRIDGE_RAW_TEXT_FALLBACK_PREFIX + fallbackBridgeText);
       return summary;
     }
 

@@ -273,7 +273,9 @@ describe("NanoGptClient", () => {
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(texts).toEqual(["I will inspect the relevant files and then summarize the findings."]);
+    expect(texts).toEqual([
+      "Warning: NanoGPT bridge mode returned plain text instead of the required JSON tool-calling contract. Treating the raw reply below as a best-effort fallback.\n\nI will inspect the relevant files and then summarize the findings.",
+    ]);
     expect(entries).toContain(
       "warn:[chat:bridge] tool-calling bridge response omitted JSON; falling back to raw text",
     );
