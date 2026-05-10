@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.11
+
+- Fixed bridge-mode replies that emit XML-like `<tool_calls>` markup instead of the JSON bridge contract by normalizing those pseudo tool tags back into executable tool calls instead of surfacing them as raw fallback text.
+- Fixed prose-only bridge failures by surfacing an explicit raw-text fallback warning when a bridged model reply omits the required JSON object entirely, and tightened the bridge prompt so commentary instructions are redirected into the JSON `message` field.
+- Changed the default `toolCallingStrategy` from `native` to `auto` so tool-enabled chats retry empty or scaffolding-only native turns through the bridge path without extra user configuration.
+- Fixed `toolCallingStrategy: "auto"` so tool-enabled native turns are buffered long enough to detect low-signal scaffolding replies with no tool calls, then retried once through the bridge path.
+- Preserved `toolMode: "required"` intent in bridge mode through stricter bridge-contract instructions, and stopped dropping flattened top-level `id`/`type` arguments when models omit an `arguments` object.
+- Added regression coverage to ensure scaffolding-only native turns retry through the bridge while substantive native text answers still pass through unchanged.
+
 ## 0.0.10
 
 - Added configurable tool-calling reliability strategies: `native`, `auto`, and `bridge`.
@@ -11,7 +20,7 @@ All notable changes to this project will be documented in this file.
 - Added a narrow automatic fallback: tool-enabled native turns that produce no visible text and no tool calls are retried once through the bridge path.
 - Fixed streamed tool-call loss on EOF by flushing pending tool calls even when providers omit `[DONE]`.
 - Added regression tests covering bridge parsing, bridge retries, direct bridge mode, and EOF tool-call flushing.
-- **Known difference:** Bridge mode strips native `tools`, `tool_choice`, and `parallel_tool_calls` from the outbound request and uses a prompt-only contract for tool selection. This means the caller's `toolMode` (auto vs required) is not forwarded in bridge mode — the bridge always lets the model decide whether to emit tool calls.
+- **Known difference:** Bridge mode strips native `tools`, `tool_choice`, and `parallel_tool_calls` from the outbound request and uses a prompt-only contract for tool selection. Required tool mode is preserved through prompt instructions rather than native API enforcement.
 
 ## 0.0.9
 

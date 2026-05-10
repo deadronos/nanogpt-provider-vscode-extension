@@ -41,6 +41,7 @@ describe("nanogpt-tool-bridge", () => {
     expect(String(messages[0]?.content)).toContain('"mode"');
     expect(String(messages[0]?.content)).toContain("Keep replies short.");
     expect(String(messages[0]?.content)).toContain("Emit exactly one tool call");
+    expect(String(messages[0]?.content)).toContain('satisfy them inside the "message" field');
 
     expect(messages[1]).toEqual({
       role: "assistant",
@@ -52,6 +53,17 @@ describe("nanogpt-tool-bridge", () => {
     expect(String(messages[2]?.content)).toContain("[TOOL EXECUTION RESULT: read_file]");
     expect(String(messages[2]?.content)).toContain("Do not repeat or re-invoke it");
     expect(messages[3]).toEqual({ role: "user", content: "Now summarize it." });
+  });
+
+  test("preserves required tool mode in the bridge contract prompt", () => {
+    const messages = buildToolCallingBridgeMessages({
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      messages: [{ role: "user", content: "Read the README" }],
+      toolMode: "required",
+      parallelToolCalls: false,
+    });
+
+    expect(String(messages[0]?.content)).toContain("Tool calls are required for this turn.");
   });
 
   test("parses a direct bridge final response", () => {
@@ -106,6 +118,19 @@ describe("nanogpt-tool-bridge", () => {
       kind: "tool_calls",
       content: "I will read the file.",
       toolCalls: [{ name: "read_file", input: { path: "README.md" } }],
+    });
+  });
+
+  test("preserves flattened id and type arguments when arguments are omitted", () => {
+    const parsed = parseToolCallingBridgeResponse(
+      '{"v":1,"mode":"tool","message":"I will fetch the record.","tool_calls":[{"name":"fetch_record","id":"abc123","type":"summary"}]}',
+      [{ name: "fetch_record", description: "Fetch a record" }],
+    );
+
+    expect(parsed).toEqual({
+      kind: "tool_calls",
+      content: "I will fetch the record.",
+      toolCalls: [{ name: "fetch_record", input: { id: "abc123", type: "summary" } }],
     });
   });
 

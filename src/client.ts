@@ -45,12 +45,72 @@ const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
  */
 const STREAM_FETCH_TIMEOUT_MS = 5 * 60_000;
 
+const BRIDGE_RAW_TEXT_FALLBACK_PREFIX =
+  "Warning: NanoGPT bridge mode returned plain text instead of the required JSON tool-calling contract. Treating the raw reply below as a best-effort fallback.\n\n";
+
 type StreamProcessingSummary = {
   chunkCount: number;
   textPartCount: number;
   reasoningPartCount: number;
   toolCallCount: number;
 };
+
+function normalizeRetryHeuristicText(text: string): string {
+  return text.replace(/[\u2018\u2019]/g, "'").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function isLikelyToolScaffoldingText(text: string): boolean {
+  const normalized = normalizeRetryHeuristicText(text);
+  if (!normalized || normalized.length > 240) {
+    return false;
+  }
+
+  const sentenceCount = normalized
+    .split(/[.!?]+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean).length;
+  if (sentenceCount > 2) {
+    return false;
+  }
+
+  const startsLikeScaffolding =
+    /^(?:ok(?:ay)?[, ]+|sure[, ]+|alright[, ]+|first[, ]+|to start[, ]+|let me\b|i(?:'m| am)\b|i(?:'ll| will)\b)/.test(
+      normalized,
+    );
+  const hasInspectionVerb =
+    /\b(?:read|reading|check|checking|inspect|inspecting|review|reviewing|look|looking|search|searching|trace|tracing|examine|examining|investigate|investigating|scan|scanning|open|opening|load|loading|analyze|analyzing|analyse|analysing|debug|debugging|explore|exploring|find|finding|start|starting|begin|beginning)\b/.test(
+      normalized,
+    );
+
+  return startsLikeScaffolding && hasInspectionVerb;
+}
+
+function collectTextParts(parts: readonly NanoGptResponsePart[]): string {
+  return parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
+}
+
+function getAutoBridgeRetryReason(params: {
+  hasTools: boolean;
+  toolCallingStrategy: NanoGptToolCallingStrategy;
+  nativeSummary: StreamProcessingSummary;
+  nativeText: string;
+  aborted: boolean;
+}): "empty" | "scaffolding" | undefined {
+  if (
+    params.toolCallingStrategy !== "auto" ||
+    !params.hasTools ||
+    params.aborted ||
+    params.nativeSummary.toolCallCount > 0
+  ) {
+    return undefined;
+  }
+
+  if (params.nativeSummary.textPartCount === 0) {
+    return "empty";
+  }
+
+  return isLikelyToolScaffoldingText(params.nativeText) ? "scaffolding" : undefined;
+}
 
 /**
  * HTTP client for NanoGPT API endpoints.
@@ -132,6 +192,12 @@ export class NanoGptClient {
           ? (payload as { data: unknown[] }).data
           : [];
 
+      if (!Array.isArray(payload) && entries.length === 0) {
+        this.logger.warn(
+          `[${requestId}] model discovery payload had unexpected shape; treating it as empty`,
+        );
+      }
+
       this.logger.trace(
         `[${requestId}] model discovery payload parsed (entryCount=${entries.length})`,
       );
@@ -190,14 +256,16 @@ export class NanoGptClient {
     const requestId = params.requestId ?? "chat";
 
     this.logger.debug(
-      `[${requestId}] HTTP POST /chat/completions (routingMode=${params.routingMode}, provider=${params.provider?.trim() || "default"}, maxTokens=${params.maxTokens ?? "default"}, toolCount=${params.tools?.length ?? 0}, toolMode=${params.toolMode ?? "default"}, reasoningEffort=${params.reasoningEffort ?? "auto"}, reasoningOutput=${params.reasoningOutput ?? "native"}, toolCallingStrategy=${params.toolCallingStrategy ?? "native"}, parallelToolCalls=${Boolean(params.parallelToolCalls)}, messageCount=${params.messages.length})`,
+      `[${requestId}] HTTP POST /chat/completions (routingMode=${params.routingMode}, provider=${params.provider?.trim() || "default"}, maxTokens=${params.maxTokens ?? "default"}, toolCount=${params.tools?.length ?? 0}, toolMode=${params.toolMode ?? "default"}, reasoningEffort=${params.reasoningEffort ?? "auto"}, reasoningOutput=${params.reasoningOutput ?? "native"}, toolCallingStrategy=${params.toolCallingStrategy ?? "auto"}, parallelToolCalls=${Boolean(params.parallelToolCalls)}, messageCount=${params.messages.length})`,
     );
 
     const timeoutSignal = withTimeout(params.signal, STREAM_FETCH_TIMEOUT_MS);
 
     try {
-      const toolCallingStrategy = params.toolCallingStrategy ?? "native";
+      const toolCallingStrategy = params.toolCallingStrategy ?? "auto";
       const hasTools = Boolean(params.tools?.length);
+      const shouldBufferNativeTurn = toolCallingStrategy === "auto" && hasTools;
+      const bufferedNativeParts: NanoGptResponsePart[] = [];
 
       if (toolCallingStrategy === "bridge" && hasTools) {
         await this.streamChatCompletionsViaBridge({
@@ -212,23 +280,42 @@ export class NanoGptClient {
         ...params,
         signal: timeoutSignal.signal,
         requestId,
+        onText: shouldBufferNativeTurn
+          ? (text) => bufferedNativeParts.push({ type: "text", text })
+          : params.onText,
+        onReasoning: shouldBufferNativeTurn
+          ? (text) => bufferedNativeParts.push({ type: "reasoning", text })
+          : params.onReasoning,
+        onToolCall: shouldBufferNativeTurn
+          ? (toolCall) => bufferedNativeParts.push(toolCall)
+          : params.onToolCall,
       });
 
-      if (
-        toolCallingStrategy === "auto" &&
-        hasTools &&
-        nativeSummary.textPartCount === 0 &&
-        nativeSummary.toolCallCount === 0 &&
-        !timeoutSignal.signal.aborted
-      ) {
+      const bridgeRetryReason = getAutoBridgeRetryReason({
+        hasTools,
+        toolCallingStrategy,
+        nativeSummary,
+        nativeText: collectTextParts(bufferedNativeParts),
+        aborted: timeoutSignal.signal.aborted,
+      });
+      if (bridgeRetryReason) {
+        const retryReasonMessage =
+          bridgeRetryReason === "empty"
+            ? "no text or tool calls"
+            : "likely scaffolding text without tool calls";
         this.logger.warn(
-          `[${requestId}] native tool-calling produced no text or tool calls; retrying with bridge mode`,
+          `[${requestId}] native tool-calling produced ${retryReasonMessage}; retrying with bridge mode`,
         );
         await this.streamChatCompletionsViaBridge({
           ...params,
           signal: timeoutSignal.signal,
           requestId: `${requestId}:bridge`,
         });
+        return;
+      }
+
+      if (shouldBufferNativeTurn) {
+        this.emitParts(bufferedNativeParts, params);
       }
     } finally {
       timeoutSignal.dispose();
@@ -281,6 +368,7 @@ export class NanoGptClient {
     provider?: string;
     maxTokens?: number;
     tools?: readonly VscodeLikeTool[];
+    toolMode?: "auto" | "required";
     reasoningEffort?: NanoGptReasoningEffort;
     reasoningOutput?: NanoGptReasoningOutput;
     parallelToolCalls?: boolean;
@@ -294,6 +382,7 @@ export class NanoGptClient {
     const bridgeMessages = buildToolCallingBridgeMessages({
       messages: params.messages,
       tools,
+      toolMode: params.toolMode,
       parallelToolCalls: params.parallelToolCalls,
     });
     let bridgeText = "";
@@ -340,6 +429,15 @@ export class NanoGptClient {
 
     if (parsed.kind === "final") {
       params.onText(parsed.content);
+      return summary;
+    }
+
+    const fallbackBridgeText = bridgeText.trim();
+    if (parsed.errorCode === "missing_bridge_object_turn" && fallbackBridgeText) {
+      this.logger.warn(
+        `[${params.requestId}] tool-calling bridge response omitted JSON; falling back to raw text`,
+      );
+      params.onText(BRIDGE_RAW_TEXT_FALLBACK_PREFIX + fallbackBridgeText);
       return summary;
     }
 

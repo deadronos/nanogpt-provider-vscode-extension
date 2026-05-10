@@ -88,6 +88,9 @@ The extension contributes the following settings:
 | `nanogpt.models` | Optional model allowlist. Leave empty to discover models automatically. |
 | `nanogpt.reasoningEffort` | Optional reasoning effort for reasoning-capable models. |
 | `nanogpt.reasoningOutput` | Controls how streamed reasoning output is shown. |
+| `nanogpt.toolCallingStrategy` | Controls tool-calling reliability. Defaults to `auto`, which retries empty or scaffolding-only native tool turns once through the stricter bridge path. |
+
+Bridge mode note: direct `bridge` mode, and `auto` retries that switch into bridge mode, do not forward VS Code's native `tool_choice` field directly. Required tool mode is preserved through stricter bridge-prompt instructions rather than native API enforcement.
 
 ### Reasoning output modes
 
