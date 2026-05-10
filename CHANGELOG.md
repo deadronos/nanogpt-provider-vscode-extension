@@ -4,10 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-- Changed the default `toolCallingStrategy` from `native` to `auto` so tool-enabled chats retry empty or scaffolding-only native turns through the bridge path without extra user configuration.
-
 ## 0.0.11
 
+- Changed the default `toolCallingStrategy` from `native` to `auto` so tool-enabled chats retry empty or scaffolding-only native turns through the bridge path without extra user configuration.
 - Fixed `toolCallingStrategy: "auto"` so tool-enabled native turns are buffered long enough to detect low-signal scaffolding replies with no tool calls, then retried once through the bridge path.
 - Added regression coverage to ensure scaffolding-only native turns retry through the bridge while substantive native text answers still pass through unchanged.
 
