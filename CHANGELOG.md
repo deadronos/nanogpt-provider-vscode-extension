@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.13
+
+- Added tool definition token estimation: `estimateTokenCount()` now accepts an optional `tools` parameter and includes approximate tokens for tool names, descriptions, and input schemas in the result.
+- Improved performance in bridge-mode tool-call history building by caching `tryParseJson` results instead of re-parsing tool arguments multiple times.
+- Hardened `ProviderConfiguration` typing: field types are now more specific than `unknown` where appropriate, and `getModelAllowlist` filters out non-string entries from the `models` array.
+- Corrected reasoning-effort documentation: the extension-local `auto` sentinel means six values are sent to the NanoGPT API, not seven (AGENTS.md).
+- Added `.worktrees/` to `.gitignore`.
+
 ## 0.0.12
 
 - Restored `native` as the default `toolCallingStrategy`; `auto` and `bridge` remain explicit opt-in reliability modes.

@@ -264,6 +264,7 @@ Rules:
 
 - string input -> roughly `ceil(length / 4)`
 - request message input -> sum text lengths and add a flat 1024 tokens per image
+- when tool definitions are provided, also add approximate tokens for each tool's name, description, and input schema
 - minimum result -> `1`
 
 This is explicitly approximate and is not model-accurate.

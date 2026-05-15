@@ -44,7 +44,7 @@ Purpose: Track follow-up work needed for the extension to match VS Code language
 ## P1: Reasoning Alignment
 
 - [x] Expand reasoning effort values or intentionally document the narrowed set.
-  - **Done (2026-05-02):** `NanoGptReasoningEffort` now includes all seven NanoGPT values: `"none"`, `"minimal"`, `"auto"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`. `auto` remains the extension-local sentinel that omits `reasoning_effort`.
+  - **Done (2026-05-02):** `NanoGptReasoningEffort` now includes all six NanoGPT values: `"none"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`. `auto` remains the extension-local sentinel that omits `reasoning_effort`.
 
 - [x] Update `NanoGptReasoningEffort`, configuration schemas, package contribution schema, and tests together.
   - **Done (2026-05-02):** Updated in `src/nanogpt.ts` (type + schema), `src/extension.ts` (validator), `package.json` (contribution schema), and `test/nanogpt.test.ts` (assertion). Invalid values resolve to `undefined`.
