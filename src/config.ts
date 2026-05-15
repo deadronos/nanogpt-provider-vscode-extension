@@ -36,13 +36,13 @@ export const DEFAULT_MODELS: VscodeModelMetadata[] = [
 ];
 
 export type ProviderConfiguration = {
-  apiKey?: unknown;
-  routingMode?: unknown;
-  provider?: unknown;
-  models?: unknown;
-  reasoningEffort?: unknown;
-  reasoningOutput?: unknown;
-  toolCallingStrategy?: unknown;
+  apiKey?: string;
+  routingMode?: string;
+  provider?: string;
+  models?: unknown[];
+  reasoningEffort?: string;
+  reasoningOutput?: string;
+  toolCallingStrategy?: string;
 };
 
 // ── Configuration helpers ────────────────────────────────────────────────────
