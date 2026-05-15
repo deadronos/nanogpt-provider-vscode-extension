@@ -110,7 +110,7 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
         },
         toolCallingStrategy: {
           enum: ["native", "auto", "bridge"],
-          default: "auto",
+          default: "native",
         },
       },
     });

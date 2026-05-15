@@ -105,12 +105,12 @@ Chat execution is exposed through `provideLanguageModelChatResponse()`.
 
 ### Transport execution
 
-1. `client.streamChatCompletions()` selects `native`, `auto`, or `bridge` tool-calling behavior.
+1. `client.streamChatCompletions()` selects `native`, `auto`, or `bridge` tool-calling behavior; `native` is the default again, and `auto`/`bridge` are explicit opt-in.
 2. The client builds the final HTTP request.
 3. The client performs a streaming `POST`.
 4. The client reads the SSE body incrementally.
 5. SSE deltas are converted to typed response parts.
-6. In `auto`, a tool-enabled native turn that yields no visible text and no tool calls is retried once with the bridge prompt.
+6. In `auto`, a tool-enabled native turn that yields no tool calls and either no visible text or only likely scaffolding text is retried once with the bridge prompt.
 7. The provider maps those parts to VS Code response parts and reports them via `progress.report(...)`.
 
 ### Response mapping
@@ -216,6 +216,7 @@ Bridge behavior:
 - assistant `tool_calls` history becomes assistant JSON text
 - `role: "tool"` history becomes user-visible tool-result text with an anti-repeat instruction
 - native `tools`, `tool_choice`, and `parallel_tool_calls` are omitted from the retried bridge request
+- malformed bridge replies get one JSON-only repair retry. If `toolMode: "required"` still omits usable tool calls after repair, the client returns `requiredToolWarning` and the provider emits it as a warning `LanguageModelTextPart` instead of surfacing raw prose
 
 ### Streamed tool call parsing
 

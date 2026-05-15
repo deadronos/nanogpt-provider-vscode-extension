@@ -147,7 +147,7 @@ export function getReasoningOutput(
 
 /**
  * Resolves the tool-calling strategy from model options, provider
- * configuration, or workspace settings. Defaults to `"auto"`.
+ * configuration, or workspace settings. Defaults to `"native"`.
  */
 export function getToolCallingStrategy(
   providerConfiguration?: ProviderConfiguration,
@@ -158,9 +158,9 @@ export function getToolCallingStrategy(
       ? modelOptions.toolCallingStrategy
       : typeof providerConfiguration?.toolCallingStrategy === "string"
           ? providerConfiguration.toolCallingStrategy
-          : getConfig().get<string>("toolCallingStrategy", "auto");
+          : getConfig().get<string>("toolCallingStrategy", "native");
 
-        return value === "auto" || value === "bridge" || value === "native" ? value : "auto";
+  return value === "auto" || value === "bridge" || value === "native" ? value : "native";
 }
 
 /**

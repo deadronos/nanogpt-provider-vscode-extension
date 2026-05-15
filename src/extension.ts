@@ -202,7 +202,7 @@ function createAbortSignal(token: vscode.CancellationToken): { signal: AbortSign
  * - Stream chat completions and map responses to VS Code parts.
  * - Provide approximate token counts.
  */
-class NanoGptLanguageModelProvider implements ChatProviderApi {
+export class NanoGptLanguageModelProvider implements ChatProviderApi {
   /**
   * Cache keyed on `routingMode + sha256(apiKey)` so that different API keys
   * or routing surfaces each get an independent cached model list without
@@ -440,7 +440,7 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
     const abortSignal = createAbortSignal(token);
 
     try {
-      await this.client.streamChatCompletions({
+      const result = await this.client.streamChatCompletions({
         apiKey,
         modelId: model.id,
         messages: toNanoGptMessages(toCoreMessages(messages)),
@@ -480,6 +480,25 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
           );
         },
       });
+
+      if (result.requiredToolWarning) {
+        responseSummary.textDeltas += 1;
+        responseSummary.textChars += result.requiredToolWarning.length;
+        progress.report(new vscode.LanguageModelTextPart(result.requiredToolWarning));
+      }
+
+      const rawBridgeTelemetry =
+        typeof result?.bridgeTelemetry === "object" && result.bridgeTelemetry !== null
+          ? result.bridgeTelemetry
+          : {};
+      const bridgeTelemetry = {
+        bridgeRepairAttempts: 0,
+        bridgeRepairSuccesses: 0,
+        bridgeRawTextFallbacks: 0,
+        bridgeRequiredFailClosed: 0,
+        ...rawBridgeTelemetry,
+      };
+
       this.logger.info(
         `[${requestId}] chat request completed (${formatKeyValuePairs({
           durationMs: Date.now() - startedAt,
@@ -492,6 +511,10 @@ class NanoGptLanguageModelProvider implements ChatProviderApi {
         `[${requestId}] chat request result details (${formatKeyValuePairs({
           textChars: responseSummary.textChars,
           reasoningChars: responseSummary.reasoningChars,
+          bridgeRepairAttempts: bridgeTelemetry.bridgeRepairAttempts,
+          bridgeRepairSuccesses: bridgeTelemetry.bridgeRepairSuccesses,
+          bridgeRawTextFallbacks: bridgeTelemetry.bridgeRawTextFallbacks,
+          bridgeRequiredFailClosed: bridgeTelemetry.bridgeRequiredFailClosed,
         })})`,
       );
     } catch (error) {
