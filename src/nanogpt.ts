@@ -39,6 +39,7 @@ export {
 
 export {
   buildToolCallingBridgeMessages,
+  buildToolCallingBridgeRepairMessages,
   parseToolCallingBridgeResponse,
 } from "./nanogpt-tool-bridge.js";
 export type {

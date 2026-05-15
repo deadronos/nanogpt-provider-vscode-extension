@@ -711,6 +711,40 @@ export function buildToolCallingBridgeMessages(params: {
   ];
 }
 
+export function buildToolCallingBridgeRepairMessages(params: {
+  messages: readonly NanoGptChatMessage[];
+  invalidResponse: string;
+  toolMode?: "auto" | "required";
+  repairReason: "invalid_response" | "required_tool_missing";
+}): NanoGptChatMessage[] {
+  const previousReply = params.invalidResponse.trim() || "(empty response)";
+  const reasonInstruction =
+    params.repairReason === "required_tool_missing"
+      ? params.toolMode === "required"
+        ? "Your previous reply still violated the contract because this turn requires at least one tool call."
+        : "Your previous reply still violated the contract."
+      : "Your previous reply violated the contract because it was not a single valid JSON object matching the schema above.";
+  const requirementReminder =
+    params.toolMode === "required"
+      ? 'Return mode "tool" with a non-empty "tool_calls" array. Do not return "final" or "clarify" for this turn.'
+      : 'If no tool call is needed, return mode "final" with the user-facing text in "message".';
+  const repairInstruction = [
+    "Your previous reply did not satisfy the structured tool-calling contract.",
+    reasonInstruction,
+    "Re-emit the same intent as exactly one JSON object that follows the system contract above.",
+    "Output JSON only.",
+    "Do not use markdown fences.",
+    "Do not add commentary before or after the JSON object.",
+    requirementReminder,
+  ].join("\n");
+
+  return [
+    ...params.messages,
+    { role: "assistant", content: previousReply },
+    { role: "user", content: repairInstruction },
+  ];
+}
+
 export function parseToolCallingBridgeResponse(
   text: string,
   tools: readonly VscodeLikeTool[],

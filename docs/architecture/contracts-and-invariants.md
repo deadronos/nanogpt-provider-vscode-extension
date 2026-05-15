@@ -188,7 +188,9 @@ Invariants:
 - `toolCallingStrategy` defaults to `auto` when omitted or invalid
 - `auto` retries at most once, and only when a tool-enabled native turn yields no tool calls and either no visible text or only low-signal scaffolding text
 - `bridge` rewrites tool history into plain messages plus a strict JSON-only system contract, and preserves `toolMode: "required"` through prompt instructions rather than native `tool_choice`
-- when a bridged model reply contains visible prose but omits the required JSON object entirely, the client surfaces an explicit raw-text fallback warning instead of presenting it as a normal final answer
+- malformed bridged replies get one JSON-only repair retry before the client decides whether to parse tool calls, accept a final bridged answer, or fall back
+- when a bridged model reply still contains visible prose but omits the required JSON object after the repair retry, the client surfaces an explicit raw-text fallback warning only for non-required tool turns
+- when `toolMode: "required"` is active and the bridged model reply still does not contain any usable tool calls after the repair retry, the client fails closed with a structured message instead of surfacing raw prose
 - pending streamed tool calls are flushed at EOF via `flushPendingToolCalls()` so providers that omit `[DONE]` do not silently lose tool calls
 
 `parallel_tool_calls` is represented internally on discovered models but not surfaced as a VS Code-visible capability.

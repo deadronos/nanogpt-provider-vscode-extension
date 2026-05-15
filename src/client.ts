@@ -1,6 +1,7 @@
 import {
   buildNanoGptChatCompletionRequest,
   buildToolCallingBridgeMessages,
+  buildToolCallingBridgeRepairMessages,
   NANOGPT_BASE_URL,
   NANOGPT_SUBSCRIPTION_BASE_URL,
   NanoGptSseParser,
@@ -48,11 +49,23 @@ const STREAM_FETCH_TIMEOUT_MS = 5 * 60_000;
 const BRIDGE_RAW_TEXT_FALLBACK_PREFIX =
   "Warning: NanoGPT bridge mode returned plain text instead of the required JSON tool-calling contract. Treating the raw reply below as a best-effort fallback.\n\n";
 
+const REQUIRED_TOOL_MODE_FAILURE_TEXT =
+  "NanoGPT could not complete this required-tool turn safely. The model failed to return a valid structured tool call, so no tools were executed. Please retry or use a different model/provider.";
+
 type StreamProcessingSummary = {
   chunkCount: number;
   textPartCount: number;
   reasoningPartCount: number;
   toolCallCount: number;
+};
+
+type BridgeRepairReason = "invalid_response" | "required_tool_missing";
+
+type BridgeTurnResult = {
+  summary: StreamProcessingSummary;
+  bridgeText: string;
+  parsed: ReturnType<typeof parseToolCallingBridgeResponse>;
+  requestId: string;
 };
 
 function normalizeRetryHeuristicText(text: string): string {
@@ -110,6 +123,22 @@ function getAutoBridgeRetryReason(params: {
   }
 
   return isLikelyToolScaffoldingText(params.nativeText) ? "scaffolding" : undefined;
+}
+
+function getBridgeRepairReason(params: {
+  bridgeText: string;
+  toolMode?: "auto" | "required";
+  parsed: ReturnType<typeof parseToolCallingBridgeResponse>;
+}): BridgeRepairReason | undefined {
+  if (!params.bridgeText.trim()) {
+    return undefined;
+  }
+
+  if (params.toolMode === "required" && params.parsed.kind !== "tool_calls") {
+    return "required_tool_missing";
+  }
+
+  return params.parsed.kind === "invalid" ? "invalid_response" : undefined;
 }
 
 /**
@@ -385,13 +414,101 @@ export class NanoGptClient {
       toolMode: params.toolMode,
       parallelToolCalls: params.parallelToolCalls,
     });
+    let turn = await this.executeBridgeTurn({
+      ...params,
+      tools,
+      messages: bridgeMessages,
+      requestId: params.requestId,
+    });
+
+    const repairReason = getBridgeRepairReason({
+      bridgeText: turn.bridgeText,
+      toolMode: params.toolMode,
+      parsed: turn.parsed,
+    });
+    if (repairReason) {
+      this.logger.warn(
+        `[${params.requestId}] tool-calling bridge response was non-compliant; retrying with a JSON-only repair turn`,
+      );
+      turn = await this.executeBridgeTurn({
+        ...params,
+        tools,
+        requestId: `${params.requestId}:repair`,
+        messages: buildToolCallingBridgeRepairMessages({
+          messages: bridgeMessages,
+          invalidResponse: turn.bridgeText,
+          toolMode: params.toolMode,
+          repairReason,
+        }),
+      });
+    }
+
+    if (turn.parsed.kind === "tool_calls") {
+      if (turn.parsed.content) {
+        params.onText(turn.parsed.content);
+      }
+
+      turn.parsed.toolCalls.forEach((toolCall, index) => {
+        params.onToolCall?.({
+          type: "tool_call",
+          callId: `bridge_call_${index + 1}`,
+          name: toolCall.name,
+          input: toolCall.input,
+        });
+      });
+
+      return turn.summary;
+    }
+
+    if (params.toolMode === "required") {
+      this.logger.warn(
+        `[${params.requestId}] tool-calling bridge required a tool call but the model did not return one; failing closed`,
+      );
+      params.onText(REQUIRED_TOOL_MODE_FAILURE_TEXT);
+      return turn.summary;
+    }
+
+    if (turn.parsed.kind === "final") {
+      params.onText(turn.parsed.content);
+      return turn.summary;
+    }
+
+    const fallbackBridgeText = turn.bridgeText.trim();
+    if (turn.parsed.errorCode === "missing_bridge_object_turn" && fallbackBridgeText) {
+      this.logger.warn(
+        `[${turn.requestId}] tool-calling bridge response omitted JSON; falling back to raw text`,
+      );
+      params.onText(BRIDGE_RAW_TEXT_FALLBACK_PREFIX + fallbackBridgeText);
+      return turn.summary;
+    }
+
+    this.logger.warn(
+      `[${turn.requestId}] tool-calling bridge response was invalid (${turn.parsed.errorCode})`,
+    );
+    throw new Error("NanoGPT tool-calling bridge response was invalid: " + turn.parsed.message);
+  }
+
+  private async executeBridgeTurn(params: {
+    apiKey: string;
+    modelId: string;
+    messages: readonly NanoGptChatMessage[];
+    routingMode: NanoGptRoutingMode;
+    provider?: string;
+    maxTokens?: number;
+    tools: readonly VscodeLikeTool[];
+    reasoningEffort?: NanoGptReasoningEffort;
+    reasoningOutput?: NanoGptReasoningOutput;
+    signal?: AbortSignal;
+    requestId: string;
+    onReasoning?: (text: string) => void;
+  }): Promise<BridgeTurnResult> {
     let bridgeText = "";
 
     const summary = await this.executeStreamingRequest({
       request: buildNanoGptChatCompletionRequest({
         apiKey: params.apiKey,
         modelId: params.modelId,
-        messages: bridgeMessages,
+        messages: params.messages,
         routingMode: params.routingMode,
         provider: params.provider,
         maxTokens: params.maxTokens,
@@ -409,42 +526,12 @@ export class NanoGptClient {
       },
     });
 
-    const parsed = parseToolCallingBridgeResponse(bridgeText, tools);
-    if (parsed.kind === "tool_calls") {
-      if (parsed.content) {
-        params.onText(parsed.content);
-      }
-
-      parsed.toolCalls.forEach((toolCall, index) => {
-        params.onToolCall?.({
-          type: "tool_call",
-          callId: `bridge_call_${index + 1}`,
-          name: toolCall.name,
-          input: toolCall.input,
-        });
-      });
-
-      return summary;
-    }
-
-    if (parsed.kind === "final") {
-      params.onText(parsed.content);
-      return summary;
-    }
-
-    const fallbackBridgeText = bridgeText.trim();
-    if (parsed.errorCode === "missing_bridge_object_turn" && fallbackBridgeText) {
-      this.logger.warn(
-        `[${params.requestId}] tool-calling bridge response omitted JSON; falling back to raw text`,
-      );
-      params.onText(BRIDGE_RAW_TEXT_FALLBACK_PREFIX + fallbackBridgeText);
-      return summary;
-    }
-
-    this.logger.warn(
-      `[${params.requestId}] tool-calling bridge response was invalid (${parsed.errorCode})`,
-    );
-    throw new Error("NanoGPT tool-calling bridge response was invalid: " + parsed.message);
+    return {
+      summary,
+      bridgeText,
+      parsed: parseToolCallingBridgeResponse(bridgeText, params.tools),
+      requestId: params.requestId,
+    };
   }
 
   private async executeStreamingRequest(params: {

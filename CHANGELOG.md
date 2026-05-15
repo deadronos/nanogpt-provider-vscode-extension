@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Added a JSON-only repair retry for malformed bridge replies so prose-only bridge turns get one more chance to re-emit a valid tool-calling contract before fallback handling.
+- Changed `toolMode: "required"` bridge behavior to fail closed with a structured user-facing message when the model still does not return any usable tool calls after the repair turn.
+
 ## 0.0.11
 
 - Fixed bridge-mode replies that emit XML-like `<tool_calls>` markup instead of the JSON bridge contract by normalizing those pseudo tool tags back into executable tool calls instead of surfacing them as raw fallback text.

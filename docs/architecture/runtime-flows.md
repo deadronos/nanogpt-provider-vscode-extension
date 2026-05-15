@@ -216,6 +216,7 @@ Bridge behavior:
 - assistant `tool_calls` history becomes assistant JSON text
 - `role: "tool"` history becomes user-visible tool-result text with an anti-repeat instruction
 - native `tools`, `tool_choice`, and `parallel_tool_calls` are omitted from the retried bridge request
+- malformed bridge replies get one JSON-only repair retry, and required-tool bridge turns fail closed if the repaired reply still omits usable tool calls
 
 ### Streamed tool call parsing
 

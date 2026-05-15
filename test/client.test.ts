@@ -2,6 +2,9 @@ import { describe, expect, test, vi } from "vitest";
 import { NanoGptClient, type NanoGptLogger } from "../src/client.js";
 
 describe("NanoGptClient", () => {
+  const REQUIRED_TOOL_MODE_FAILURE_TEXT =
+    "NanoGPT could not complete this required-tool turn safely. The model failed to return a valid structured tool call, so no tools were executed. Please retry or use a different model/provider.";
+
   function createLoggerSink(): { logger: NanoGptLogger; entries: string[] } {
     const entries: string[] = [];
     const createMethod = (level: string) => (message: string) => entries.push(`${level}:${message}`);
@@ -285,13 +288,22 @@ describe("NanoGptClient", () => {
     ]);
   });
 
-  test("falls back to raw bridge text when the retried bridge turn omits JSON entirely", async () => {
+  test("falls back to raw bridge text when the repair turn still omits JSON entirely", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockImplementationOnce(async () =>
         new Response(
           createReadableStream([
             'data: {"choices":[{"delta":{"content":"Let me start by reading the key project files and configuration."}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"I will inspect the relevant files and then summarize the findings."}}]}\n\n',
             "data: [DONE]\n\n",
           ]),
           { status: 200 },
@@ -321,12 +333,15 @@ describe("NanoGptClient", () => {
       onText: (text) => texts.push(text),
     });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(texts).toEqual([
       "Warning: NanoGPT bridge mode returned plain text instead of the required JSON tool-calling contract. Treating the raw reply below as a best-effort fallback.\n\nI will inspect the relevant files and then summarize the findings.",
     ]);
     expect(entries).toContain(
-      "warn:[chat:bridge] tool-calling bridge response omitted JSON; falling back to raw text",
+      "warn:[chat:bridge] tool-calling bridge response was non-compliant; retrying with a JSON-only repair turn",
+    );
+    expect(entries).toContain(
+      "warn:[chat:bridge:repair] tool-calling bridge response omitted JSON; falling back to raw text",
     );
   });
 
@@ -474,6 +489,109 @@ describe("NanoGptClient", () => {
     };
     expect(String(bridgeRequest.messages?.[0]?.content)).toContain(
       "Tool calls are required for this turn.",
+    );
+  });
+
+  test("repairs a prose-only bridge turn with a second JSON-only retry", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"I will inspect the relevant files and then summarize the findings."}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"{\\"v\\":1,\\"mode\\":\\"tool\\",\\"message\\":\\"I will inspect the file.\\",\\"tool_calls\\":[{\\"name\\":\\"read_file\\",\\"arguments\\":{\\"path\\":\\"README.md\\"}}]}"}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      );
+
+    const { logger, entries } = createLoggerSink();
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const texts: string[] = [];
+    const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Review the project" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      toolCallingStrategy: "bridge",
+      onText: (text) => texts.push(text),
+      onToolCall: (toolCall) => toolCalls.push(toolCall),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(texts).toEqual(["I will inspect the file."]);
+    expect(toolCalls).toEqual([
+      {
+        type: "tool_call",
+        callId: "bridge_call_1",
+        name: "read_file",
+        input: { path: "README.md" },
+      },
+    ]);
+    expect(entries).toContain(
+      "warn:[chat] tool-calling bridge response was non-compliant; retrying with a JSON-only repair turn",
+    );
+  });
+
+  test("fails closed for required bridge turns when repair still returns no tool calls", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"I will inspect the relevant files and then summarize the findings."}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"{\\"v\\":1,\\"mode\\":\\"final\\",\\"message\\":\\"I can summarize the task without using any tools.\\"}"}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      );
+
+    const { logger, entries } = createLoggerSink();
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const texts: string[] = [];
+    const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Review the project" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      toolCallingStrategy: "bridge",
+      toolMode: "required",
+      onText: (text) => texts.push(text),
+      onToolCall: (toolCall) => toolCalls.push(toolCall),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(texts).toEqual([REQUIRED_TOOL_MODE_FAILURE_TEXT]);
+    expect(toolCalls).toEqual([]);
+    expect(entries).toContain(
+      "warn:[chat] tool-calling bridge response was non-compliant; retrying with a JSON-only repair turn",
+    );
+    expect(entries).toContain(
+      "warn:[chat] tool-calling bridge required a tool call but the model did not return one; failing closed",
     );
   });
 
