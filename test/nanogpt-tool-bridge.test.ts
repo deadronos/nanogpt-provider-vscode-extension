@@ -142,4 +142,33 @@ describe("nanogpt-tool-bridge", () => {
       errorCode: "invalid_schema_turn",
     });
   });
+
+  test("caches tryParseJson result to avoid redundant parsing of tool call arguments", () => {
+    const messages = buildToolCallingBridgeMessages({
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      messages: [
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: {
+                name: "read_file",
+                arguments: JSON.stringify({ path: "README.md" }),
+              },
+            },
+          ],
+        },
+      ],
+      parallelToolCalls: false,
+    });
+
+    const assistantMessage = messages.find((m) => m.role === "assistant")!;
+    const parsed = JSON.parse(String(assistantMessage.content));
+    expect(parsed.tool_calls).toEqual([
+      { name: "read_file", arguments: { path: "README.md" } },
+    ]);
+  });
 });

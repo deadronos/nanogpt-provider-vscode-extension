@@ -117,15 +117,17 @@ function encodeAssistantToolCallsMessage(message: NanoGptChatMessage): string {
     v: 1,
     mode: "tool",
     message: contentToText(message.content).trim(),
-    tool_calls: (message.tool_calls ?? []).map((toolCall) => ({
-      name: toolCall.function.name,
-      arguments:
-        tryParseJson(toolCall.function.arguments) &&
-        typeof tryParseJson(toolCall.function.arguments) === "object" &&
-        !Array.isArray(tryParseJson(toolCall.function.arguments))
-          ? (tryParseJson(toolCall.function.arguments) as object)
-          : {},
-    })),
+    tool_calls: (message.tool_calls ?? []).map((toolCall) => {
+      const parsedArgs = tryParseJson(toolCall.function.arguments);
+      const args =
+        parsedArgs && typeof parsedArgs === "object" && !Array.isArray(parsedArgs)
+          ? parsedArgs
+          : {};
+      return {
+        name: toolCall.function.name,
+        arguments: args,
+      };
+    }),
   });
 }
 
