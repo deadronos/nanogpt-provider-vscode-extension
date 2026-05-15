@@ -62,6 +62,7 @@ import {
   type NanoGptModelEntry,
   type NanoGptTokenizer,
   type VscodeLikeMessage,
+  type VscodeLikeTool,
   type VscodeModelMetadata,
   resolveRole,
 } from "./nanogpt-types.js";
@@ -229,7 +230,10 @@ export function mapNanoGptModelsToVscode(
  * a flat 1024-token cost per image. This is **not** model-accurate
  * but is sufficient for VS Code's approximate token reporting.
  */
-export function estimateTokenCount(value: string | VscodeLikeMessage): number {
+export function estimateTokenCount(
+  value: string | VscodeLikeMessage,
+  tools?: readonly VscodeLikeTool[],
+): number {
   if (typeof value === "string") {
     return Math.max(1, Math.ceil(value.length / 4));
   }
@@ -265,5 +269,18 @@ export function estimateTokenCount(value: string | VscodeLikeMessage): number {
     }
   }
 
-  return Math.max(1, Math.ceil(totalText.length / 4) + imageCount * 1024);
+  let toolTokens = 0;
+
+  if (tools && tools.length > 0) {
+    for (const tool of tools) {
+      toolTokens += Math.ceil(tool.name.length / 4);
+      toolTokens += Math.ceil((tool.description ?? "").length / 4);
+      toolTokens += Math.ceil(JSON.stringify(tool.inputSchema ?? {}).length / 4);
+    }
+  }
+
+  return Math.max(
+    1,
+    Math.ceil(totalText.length / 4) + imageCount * 1024 + toolTokens,
+  );
 }
