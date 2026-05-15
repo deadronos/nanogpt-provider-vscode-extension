@@ -40,7 +40,7 @@ Tests live in `test/` and run under Vitest in plain Node — no VS Code APIs are
 
 **Two routing surfaces** — `subscription` maps to `NANOGPT_SUBSCRIPTION_BASE_URL`; `paygo` maps to `NANOGPT_BASE_URL`. Both are defined in `src/nanogpt.ts`.
 
-**`reasoningEffort: "auto"` is an extension-local sentinel** — It means "omit the field", not "send `auto` to NanoGPT". The seven actual values sent to the API are `none | minimal | low | medium | high | xhigh`.
+**`reasoningEffort: "auto"` is an extension-local sentinel** — It means "omit the field", not "send `auto` to NanoGPT". The six actual values sent to the API are `none | minimal | low | medium | high | xhigh`.
 
 **Coupled schema changes** — When modifying `NanoGptReasoningEffort`, `NanoGptToolCallingStrategy`, or adding config options, update all relevant locations together: `src/nanogpt-types.ts` (type), `src/nanogpt.ts` (schema), `src/config.ts` (validator), `package.json` (contribution schema), and tests.
 
