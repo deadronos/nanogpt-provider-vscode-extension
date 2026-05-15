@@ -378,4 +378,30 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
   test("returns minimum of 1 for empty string", () => {
     expect(estimateTokenCount("")).toBe(1);
   });
+
+  test("includes tool definition tokens in message estimates", () => {
+    const message = {
+      role: "user",
+      content: [{ kind: "text", value: "hello" }],
+    };
+
+    const tools = [
+      {
+        name: "read_file",
+        description: "Read a workspace file",
+        inputSchema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        } as object,
+      },
+    ];
+
+    const withoutTools = estimateTokenCount(message);
+    const withTools = estimateTokenCount(message, tools);
+
+    expect(withoutTools).toBe(2);
+    expect(withTools).toBeGreaterThanOrEqual(20);
+    expect(withTools).toBeLessThanOrEqual(31);
+  });
 });

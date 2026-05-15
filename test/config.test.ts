@@ -8,7 +8,7 @@ vi.mock("vscode", () => ({
   },
 }));
 
-import { getToolCallingStrategy } from "../src/config.js";
+import { getModelAllowlist, getToolCallingStrategy } from "../src/config.js";
 
 describe("NanoGPT config — tool calling strategy resolver", () => {
 
@@ -23,5 +23,13 @@ describe("NanoGPT config — tool calling strategy resolver", () => {
   test("preserves explicit auto and bridge values", () => {
     expect(getToolCallingStrategy({ toolCallingStrategy: "auto" })).toBe("auto");
     expect(getToolCallingStrategy({ toolCallingStrategy: "bridge" })).toBe("bridge");
+  });
+
+  test("filters non-string values from ProviderConfiguration models array", () => {
+    const result = getModelAllowlist({
+      models: ["gpt-5.4-mini", 123, null, undefined, { id: "bad" }],
+    });
+
+    expect(result).toEqual(["gpt-5.4-mini"]);
   });
 });
