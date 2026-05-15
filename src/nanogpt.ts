@@ -141,7 +141,7 @@ export function buildModelConfigurationSchema(): VscodeModelMetadata["configurat
         type: "string",
         enum: ["native", "auto", "bridge"],
         enumItemLabels: ["Native", "Auto Retry", "Bridge"],
-        default: "auto",
+        default: "native",
         description:
           "Controls tool-calling reliability mode. Native forwards NanoGPT tools directly, auto retries empty or likely scaffolding-only native tool turns with a stricter bridge prompt, and bridge always uses the stricter bridge prompt.",
       },

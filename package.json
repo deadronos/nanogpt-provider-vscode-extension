@@ -121,7 +121,7 @@
                 "Auto Retry",
                 "Bridge"
               ],
-              "default": "auto",
+              "default": "native",
               "description": "Controls tool-calling reliability mode. Native forwards NanoGPT tools directly, auto retries empty or likely scaffolding-only native tool turns with a stricter bridge prompt, and bridge always uses the stricter bridge prompt."
             }
           }
@@ -200,7 +200,7 @@
             "auto",
             "bridge"
           ],
-          "default": "auto",
+          "default": "native",
           "description": "Controls tool-calling reliability mode. Native forwards NanoGPT tools directly, auto retries empty or likely scaffolding-only native tool turns with a stricter bridge prompt, and bridge always uses the stricter bridge prompt."
         },
         "nanogpt.verboseLogging": {

@@ -323,7 +323,7 @@ describe("NanoGptClient", () => {
     const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
     const texts: string[] = [];
 
-    await client.streamChatCompletions({
+    const result = await client.streamChatCompletions({
       apiKey: "test-key",
       modelId: "gpt-5.4-mini",
       messages: [{ role: "user", content: "Review the project" }],
@@ -337,6 +337,12 @@ describe("NanoGptClient", () => {
     expect(texts).toEqual([
       "Warning: NanoGPT bridge mode returned plain text instead of the required JSON tool-calling contract. Treating the raw reply below as a best-effort fallback.\n\nI will inspect the relevant files and then summarize the findings.",
     ]);
+    expect(result.bridgeTelemetry).toEqual({
+      bridgeRepairAttempts: 1,
+      bridgeRepairSuccesses: 0,
+      bridgeRawTextFallbacks: 1,
+      bridgeRequiredFailClosed: 0,
+    });
     expect(entries).toContain(
       "warn:[chat:bridge] tool-calling bridge response was non-compliant; retrying with a JSON-only repair turn",
     );
@@ -345,7 +351,7 @@ describe("NanoGptClient", () => {
     );
   });
 
-  test("defaults tool-enabled turns to auto retry mode when strategy is omitted", async () => {
+  test("defaults omitted toolCallingStrategy to native", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockImplementationOnce(async () =>
@@ -381,16 +387,11 @@ describe("NanoGptClient", () => {
       onToolCall: (toolCall) => toolCalls.push(toolCall),
     });
 
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(texts).toEqual(["I will inspect the file."]);
-    expect(toolCalls).toEqual([
-      {
-        type: "tool_call",
-        callId: "bridge_call_1",
-        name: "read_file",
-        input: { path: "README.md" },
-      },
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(texts).toEqual([
+      "I'll start by reading the key source files and architecture docs to get a thorough understanding of the project before reviewing it.",
     ]);
+    expect(toolCalls).toEqual([]);
   });
 
   test("preserves substantive native text answers in auto mode", async () => {
@@ -407,7 +408,7 @@ describe("NanoGptClient", () => {
     const client = new NanoGptClient(fetchImpl as typeof fetch);
     const texts: string[] = [];
 
-    await client.streamChatCompletions({
+    const result = await client.streamChatCompletions({
       apiKey: "test-key",
       modelId: "gpt-5.4-mini",
       messages: [{ role: "user", content: "What commands are available?" }],
@@ -419,6 +420,46 @@ describe("NanoGptClient", () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(texts).toEqual(["The README already documents the available commands."]);
+    expect(result.bridgeTelemetry).toEqual({
+      bridgeRepairAttempts: 0,
+      bridgeRepairSuccesses: 0,
+      bridgeRawTextFallbacks: 0,
+      bridgeRequiredFailClosed: 0,
+    });
+    expect(result.requiredToolWarning).toBeUndefined();
+  });
+
+  test("returns structured telemetry for a native no-bridge text-only path", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementationOnce(async () =>
+      new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+        { status: 200 },
+      ),
+    );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const texts: string[] = [];
+
+    const result = await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Say hello" }],
+      routingMode: "subscription",
+      onText: (text) => texts.push(text),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(texts).toEqual(["Hello"]);
+    expect(result.bridgeTelemetry).toEqual({
+      bridgeRepairAttempts: 0,
+      bridgeRepairSuccesses: 0,
+      bridgeRawTextFallbacks: 0,
+      bridgeRequiredFailClosed: 0,
+    });
+    expect(result.requiredToolWarning).toBeUndefined();
   });
 
   test("uses bridge mode directly when configured", async () => {
@@ -437,7 +478,7 @@ describe("NanoGptClient", () => {
     const client = new NanoGptClient(fetchImpl as typeof fetch);
     const texts: string[] = [];
 
-    await client.streamChatCompletions({
+    const result = await client.streamChatCompletions({
       apiKey: "test-key",
       modelId: "gpt-5.4-mini",
       messages: [{ role: "user", content: "Finish" }],
@@ -448,6 +489,13 @@ describe("NanoGptClient", () => {
     });
 
     expect(texts).toEqual(["Done."]);
+    expect(result.bridgeTelemetry).toEqual({
+      bridgeRepairAttempts: 0,
+      bridgeRepairSuccesses: 0,
+      bridgeRawTextFallbacks: 0,
+      bridgeRequiredFailClosed: 0,
+    });
+    expect(result.requiredToolWarning).toBeUndefined();
     const bridgeRequest = JSON.parse(String(fetchCalls[0]?.[1]?.body ?? "{}")) as {
       tools?: unknown;
       messages?: Array<{ role?: string; content?: string }>;
@@ -519,7 +567,7 @@ describe("NanoGptClient", () => {
     const texts: string[] = [];
     const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
 
-    await client.streamChatCompletions({
+    const result = await client.streamChatCompletions({
       apiKey: "test-key",
       modelId: "gpt-5.4-mini",
       messages: [{ role: "user", content: "Review the project" }],
@@ -543,6 +591,63 @@ describe("NanoGptClient", () => {
     expect(entries).toContain(
       "warn:[chat] tool-calling bridge response was non-compliant; retrying with a JSON-only repair turn",
     );
+    expect(result.bridgeTelemetry).toEqual({
+      bridgeRepairAttempts: 1,
+      bridgeRepairSuccesses: 1,
+      bridgeRawTextFallbacks: 0,
+      bridgeRequiredFailClosed: 0,
+    });
+    expect(result.requiredToolWarning).toBeUndefined();
+  });
+
+  test("counts repaired bridge replies as successes when the repair turn yields a final answer", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"I will inspect the relevant files and then summarize the findings."}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      )
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"{\\"v\\":1,\\"mode\\":\\"final\\",\\"message\\":\\"Here is the summary.\\"}"}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      );
+
+    const { logger, entries } = createLoggerSink();
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const texts: string[] = [];
+
+    const result = await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Review the project" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      toolCallingStrategy: "bridge",
+      onText: (text) => texts.push(text),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(texts).toEqual(["Here is the summary."]);
+    expect(entries).toContain(
+      "warn:[chat] tool-calling bridge response was non-compliant; retrying with a JSON-only repair turn",
+    );
+    expect(result.bridgeTelemetry).toEqual({
+      bridgeRepairAttempts: 1,
+      bridgeRepairSuccesses: 1,
+      bridgeRawTextFallbacks: 0,
+      bridgeRequiredFailClosed: 0,
+    });
+    expect(result.requiredToolWarning).toBeUndefined();
   });
 
   test("fails closed for required bridge turns when repair still returns no tool calls", async () => {
@@ -572,7 +677,7 @@ describe("NanoGptClient", () => {
     const texts: string[] = [];
     const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
 
-    await client.streamChatCompletions({
+    const result = await client.streamChatCompletions({
       apiKey: "test-key",
       modelId: "gpt-5.4-mini",
       messages: [{ role: "user", content: "Review the project" }],
@@ -585,8 +690,15 @@ describe("NanoGptClient", () => {
     });
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-    expect(texts).toEqual([REQUIRED_TOOL_MODE_FAILURE_TEXT]);
+    expect(texts).toEqual([]);
     expect(toolCalls).toEqual([]);
+    expect(result.requiredToolWarning).toBe(REQUIRED_TOOL_MODE_FAILURE_TEXT);
+    expect(result.bridgeTelemetry).toEqual({
+      bridgeRepairAttempts: 1,
+      bridgeRepairSuccesses: 1,
+      bridgeRawTextFallbacks: 0,
+      bridgeRequiredFailClosed: 1,
+    });
     expect(entries).toContain(
       "warn:[chat] tool-calling bridge response was non-compliant; retrying with a JSON-only repair turn",
     );
@@ -765,6 +877,7 @@ describe("NanoGptClient", () => {
     expect(entries).toEqual(
       expect.arrayContaining([
         expect.stringContaining("debug:[chat-42] HTTP POST /chat/completions"),
+        expect.stringContaining("toolCallingStrategy=native"),
         expect.stringContaining("debug:[chat-42] chat response received (status=200"),
         expect.stringContaining("trace:[chat-42] chat stream processed (chunks="),
         expect.stringContaining("textParts=1, reasoningParts=0, toolCalls=0"),
