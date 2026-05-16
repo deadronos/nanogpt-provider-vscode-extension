@@ -210,11 +210,31 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
    * `clearModelCache()` flushes all entries.
    */
   private readonly modelCache = new Map<string, VscodeModelMetadata[]>();
+  private readonly modelChangeEmitter = new vscode.EventEmitter<void>();
   private nextRequestNumber = 0;
+  readonly onDidChangeLanguageModelChatInformation = this.modelChangeEmitter.event;
+  private static readonly onboardingWarningMessage =
+    "NanoGPT API key is required to discover models. You can manage provider settings or enter a key directly.";
+  private static readonly openManageLanguageModelsAction = "Open Manage Language Models";
+  private static readonly manageApiKeyDirectlyAction = "Manage API Key Directly";
+  // Known runtime command IDs that should be preferred when available.
+  // Runtime probing is still authoritative, so this list is intentionally small.
+  private static readonly preferredLanguageModelManagementCommands = [
+    "workbench.action.chat.manageModels",
+    "workbench.action.chat.manageLanguageModels",
+  ];
+  private static readonly runtimeLanguageModelManagementCommandPattern =
+    /manage(?:LanguageModels|LanguageModel|Models|Model)/i;
+  private static readonly runtimeLanguageModelManagementCommandBlacklist = [
+    /openchat/i,
+    /\bopen\b.*\bchat\b/i,
+  ];
+  private hasShownMissingApiKeyWarningThisSession = false;
 
   /**
    * @param context - VS Code extension context for secret storage.
    * @param client  - The NanoGPT HTTP client instance.
+   * @param logger  - The provider logger instance.
    */
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -222,9 +242,89 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     private readonly logger: NanoGptLogger,
   ) {}
 
+  private notifyModelCatalogChanged(reason: string): void {
+    this.logger.info(`[provider] model catalog changed (${formatKeyValuePairs({ reason })})`);
+    this.modelChangeEmitter.fire();
+  }
+
   private nextRequestId(kind: "discovery" | "chat"): string {
     this.nextRequestNumber += 1;
     return `${kind}-${this.nextRequestNumber}`;
+  }
+
+  private static isPlausibleLanguageModelManagementCommand(command: string): boolean {
+    const normalized = String(command).trim();
+    if (normalized.length === 0) {
+      return false;
+    }
+
+    const blacklisted = NanoGptLanguageModelProvider.runtimeLanguageModelManagementCommandBlacklist.some((pattern) =>
+      pattern.test(normalized),
+    );
+    if (blacklisted) {
+      return false;
+    }
+
+    return NanoGptLanguageModelProvider.runtimeLanguageModelManagementCommandPattern.test(normalized);
+  }
+
+  private async probeLanguageModelManagementCommand(): Promise<string | undefined> {
+    try {
+      const commands = await vscode.commands.getCommands(true);
+      for (const candidate of NanoGptLanguageModelProvider.preferredLanguageModelManagementCommands) {
+        if (commands.includes(candidate)) {
+          return candidate;
+        }
+      }
+
+      for (const command of commands) {
+        if (NanoGptLanguageModelProvider.isPlausibleLanguageModelManagementCommand(command)) {
+          return command;
+        }
+      }
+    } catch {
+      // If runtime command enumeration fails, fall back to the hard-coded command.
+    }
+    return undefined;
+  }
+
+  private async openLanguageModelManagementCommand(): Promise<void> {
+    const command = await this.probeLanguageModelManagementCommand();
+    if (command) {
+      try {
+        await vscode.commands.executeCommand(command);
+        return;
+      } catch {
+        // Fall through to the fallback command.
+      }
+    }
+    await vscode.commands.executeCommand("nanogpt.manage");
+  }
+
+  private async handleMissingApiKeyOnboarding(silent: boolean): Promise<void> {
+    if (silent) {
+      if (this.hasShownMissingApiKeyWarningThisSession) {
+        return;
+      }
+      this.hasShownMissingApiKeyWarningThisSession = true;
+      void vscode.window.showWarningMessage(NanoGptLanguageModelProvider.onboardingWarningMessage);
+      return;
+    }
+
+    const action = await vscode.window.showWarningMessage(
+      NanoGptLanguageModelProvider.onboardingWarningMessage,
+      NanoGptLanguageModelProvider.openManageLanguageModelsAction,
+      NanoGptLanguageModelProvider.manageApiKeyDirectlyAction,
+    );
+
+    if (action === NanoGptLanguageModelProvider.openManageLanguageModelsAction) {
+      await this.openLanguageModelManagementCommand();
+      return;
+    }
+
+    if (action === NanoGptLanguageModelProvider.manageApiKeyDirectlyAction) {
+      await vscode.commands.executeCommand("nanogpt.manage");
+    }
   }
 
   /**
@@ -276,6 +376,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
           durationMs: Date.now() - startedAt,
         })})`,
       );
+      await this.handleMissingApiKeyOnboarding(options.silent);
       // No API key — return capability stubs for the allowlisted IDs.
       // Use safe pessimistic defaults rather than cloning DEFAULT_MODELS[0] so
       // that capabilities like imageInput and toolCalling are not incorrectly
@@ -309,9 +410,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
           durationMs: Date.now() - startedAt,
         })})`,
       );
-      if (!options.silent) {
-        await vscode.commands.executeCommand("nanogpt.manage");
-      }
+      await this.handleMissingApiKeyOnboarding(options.silent);
       return DEFAULT_MODELS;
     }
 
@@ -552,8 +651,9 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
    * Clears the entire model cache so the next discovery call fetches
    * fresh data from NanoGPT for all API keys and routing modes.
    */
-  clearModelCache(): void {
+  clearModelCache(reason = "cache-cleared"): void {
     this.modelCache.clear();
+    this.notifyModelCatalogChanged(reason);
   }
 }
 
@@ -594,6 +694,15 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
+      if (
+        event.affectsConfiguration("nanogpt.apiKey") ||
+        event.affectsConfiguration("nanogpt.routingMode") ||
+        event.affectsConfiguration("nanogpt.provider") ||
+        event.affectsConfiguration("nanogpt.models")
+      ) {
+        provider.clearModelCache("configuration-changed");
+      }
+
       if (event.affectsConfiguration(`nanogpt.${VERBOSE_LOGGING_SETTING}`)) {
         const verboseLoggingEnabled = isVerboseLoggingEnabled();
         logger.info(`NanoGPT verbose logging ${verboseLoggingEnabled ? "enabled" : "disabled"}`);
@@ -624,11 +733,11 @@ export function activate(context: vscode.ExtensionContext): void {
         logger.info("NanoGPT API key cleared from VS Code secret storage");
         void vscode.window.showInformationMessage("NanoGPT API key cleared.");
       }
-      provider.clearModelCache();
+      provider.clearModelCache("api-key-updated");
       logger.debug("NanoGPT model cache cleared after API key update");
     }),
     vscode.commands.registerCommand("nanogpt.refreshModels", () => {
-      provider.clearModelCache();
+      provider.clearModelCache("manual-refresh");
       logger.info("NanoGPT model cache cleared by refresh command");
       void vscode.window.showInformationMessage("NanoGPT model cache cleared.");
     }),

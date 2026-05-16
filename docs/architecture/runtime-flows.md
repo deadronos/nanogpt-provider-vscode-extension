@@ -13,6 +13,7 @@ When VS Code activates the extension:
 5. A `NanoGptLanguageModelProvider` is created.
 6. The provider is registered through `vscode.lm.registerLanguageModelChatProvider` if the API exists.
 7. Commands and configuration listeners are registered.
+8. API-key updates, manual refreshes, and model-affecting `nanogpt.*` setting changes clear the discovery cache and fire `onDidChangeLanguageModelChatInformation` so VS Code re-queries the provider.
 
 ```mermaid
 sequenceDiagram
@@ -38,12 +39,18 @@ Discovery is exposed through `provideLanguageModelChatInformation()`.
 
 1. Generate a request id like `discovery-1`.
 2. Resolve API key, routing mode, and optional model allowlist.
-3. If an allowlist exists with no key, synthesize fallback models from the allowlist.
+3. If an allowlist exists with no key, surface the same missing-key onboarding guidance and synthesize fallback models from the allowlist.
 4. If no key exists at all, optionally trigger `nanogpt.manage` and return cached or default models.
 5. Otherwise call `client.discoverModels()`.
 6. Map raw NanoGPT entries to VS Code metadata.
 7. Cache result by `${apiKey}|${routingMode}`.
 8. Return discovered models, or default model if the list is empty.
+
+### Refresh triggers
+
+- `nanogpt.manage` saves or clears the secret-stored API key, clears the discovery cache, and fires the provider model-change event.
+- `nanogpt.refreshModels` clears the discovery cache and fires the provider model-change event.
+- Workspace configuration changes to `nanogpt.apiKey`, `nanogpt.routingMode`, `nanogpt.provider`, or `nanogpt.models` clear the discovery cache and fire the provider model-change event.
 
 ### Transport details
 
@@ -91,14 +98,7 @@ Chat execution is exposed through `provideLanguageModelChatResponse()`.
 1. Generate request id like `chat-4`.
 2. Resolve API key.
 3. Fail immediately if no API key is available.
-4. Resolve:
-   - routing mode
-   - provider
-   - reasoning effort
-   - reasoning output
-  - tool-calling strategy
-   - max tokens
-   - tool mode
+4. Resolve routing mode, provider, reasoning effort, reasoning output, tool-calling strategy, max tokens, and tool mode.
 5. Summarize input messages and tools for sanitized logging.
 6. Convert VS Code messages to core messages with `toCoreMessages()`.
 7. Convert core messages to NanoGPT/OpenAI-compatible messages with `toNanoGptMessages()`.

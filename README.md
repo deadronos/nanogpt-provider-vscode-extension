@@ -68,14 +68,14 @@ After installing the extension:
 4. Enter your NanoGPT API key when prompted.
 5. Open VS Code Chat and select a NanoGPT model from the model picker.
 
+Prefer the provider configuration flow because VS Code stores the API key as a secret. Use `NanoGPT: Manage API Key` only as a fallback when the provider UI is unavailable.
+
 You can also use these commands:
 
 ```text
 NanoGPT: Manage API Key
 NanoGPT: Refresh Models
 ```
-
-The provider configuration flow is preferred because VS Code stores the API key as a secret.
 
 ## Configuration
 
@@ -172,7 +172,7 @@ Known limitations:
 
 ## Security notes
 
-- **Prefer the VS Code provider configuration flow** (`Chat: Manage Language Models`) or the `NanoGPT: Manage API Key` command — both store your key in VS Code's secret storage rather than in plain-text settings.
+- **Prefer the VS Code provider configuration flow** (`Chat: Manage Language Models`) first, and use `NanoGPT: Manage API Key` only as a fallback — both store your key in VS Code's secret storage rather than in plain-text settings.
 - Avoid putting API keys directly into checked-in settings files. If you must use `nanogpt.apiKey` in settings, ensure it is not committed to Git.
 - The extension also reads `NANOGPT_API_KEY` from the environment as a last-resort fallback. Use this only in local development; environment variables can leak through crash reports, process listings, or CI logs.
 

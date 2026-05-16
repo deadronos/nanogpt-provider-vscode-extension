@@ -63,7 +63,7 @@ Responsibilities:
 
 - Registers the language model chat provider under vendor id `nanogpt`.
 - Registers commands: `nanogpt.manage`, `nanogpt.refreshModels`.
-- Owns the `NanoGptLanguageModelProvider` class with model cache, discovery, chat streaming, and token counting.
+- Owns the `NanoGptLanguageModelProvider` class with model cache, discovery, chat streaming, token counting, and the provider-level model-change event that tells VS Code when discovery should run again.
 - Bridges VS Code `CancellationToken` to `AbortSignal` via `createAbortSignal`.
 
 #### `src/config.ts`
@@ -331,7 +331,7 @@ The extension favors controlled degradation over hard failure where possible.
 
 Examples:
 
-- no API key during discovery: return fallback or allowlisted models
+- no API key during discovery: return fallback or allowlisted models, while still surfacing the provider-owned missing-key onboarding guidance
 - discovery failure with cached models: reuse cache
 - missing stream body: return without text instead of crashing
 - malformed tool arguments: emit `{}`

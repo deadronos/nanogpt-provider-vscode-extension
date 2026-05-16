@@ -14,7 +14,16 @@ const LanguageModelChatToolMode = {
   Default: Symbol("Default"),
 };
 
+const EventEmitter = class<T> {
+  readonly event = (_listener: (value: T) => void) => ({ dispose: () => {} });
+
+  fire(_value: T): void {}
+
+  dispose(): void {}
+};
+
 vi.mock("vscode", () => ({
+  EventEmitter,
   LanguageModelTextPart,
   LanguageModelError: class extends Error {},
   LanguageModelChatToolMode,
