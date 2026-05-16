@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.15
+
+- Clarified provider-supplied model tooltips to show separate input and output token limits for discovered NanoGPT models, reducing confusion when VS Code renders its own combined "max context" summaries elsewhere in the UI.
+- Fixed incorrect maxInputTokens calculation that subtracted max_output_tokens from context_length.
+
 ## 0.0.14
 
 - Changed missing-key onboarding behavior so non-silent discovery offers explicit actions `Open Manage Language Models` and `Manage API Key Directly`, while silent discovery shows only a single passive warning and does not open input dialogs or modals, including when discovery is returning allowlisted unverified model stubs without an API key.

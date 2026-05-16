@@ -39,9 +39,6 @@ Thumbs.db
 *.swp
 *.swo
 
-# Keep workspace recommendations/settings reviewable by default.
-!.vscode/extensions.json
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
+# Miscellaneous
+.vscode/
 .worktrees/

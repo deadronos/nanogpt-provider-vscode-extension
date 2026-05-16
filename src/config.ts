@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import {
+  buildModelTooltip,
   buildModelConfigurationSchema,
   type NanoGptReasoningEffort,
   type NanoGptReasoningOutput,
@@ -17,10 +18,10 @@ export const DEFAULT_MODELS: VscodeModelMetadata[] = [
     name: "GPT-5.4 Mini",
     family: "gpt-5.4-mini",
     version: "gpt-5.4-mini",
-    maxInputTokens: 167232,
+    maxInputTokens: 200000,
     maxOutputTokens: 32768,
     detail: "NanoGPT",
-    tooltip: "NanoGPT model gpt-5.4-mini",
+    tooltip: buildModelTooltip("gpt-5.4-mini", 200000, 32768),
     capabilities: {
       imageInput: true,
       toolCalling: false,

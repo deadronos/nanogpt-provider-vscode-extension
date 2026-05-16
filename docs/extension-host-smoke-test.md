@@ -62,6 +62,7 @@ Expected:
 
 - Discovered models appear (not only fallback model).
 - Selecting a discovered model succeeds.
+- If VS Code shows a rounded or combined "max context" label in some picker or hover surfaces, compare it against the provider tooltip and the Configure view; the extension reports separate input/output limits, but VS Code may synthesize its own combined summary independently.
 
 ### 3. Send a basic text chat request
 
