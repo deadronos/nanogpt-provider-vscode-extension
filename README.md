@@ -96,6 +96,8 @@ Bridge mode note: direct `bridge` mode, and `auto` retries that switch into brid
 
 For discovered NanoGPT models, the extension treats NanoGPT's `context_length` / `contextWindow` as the model's max input token limit and reports `max_output_tokens` / `maxTokens` separately as the max output token limit. It does not subtract output tokens from the reported input limit.
 
+The extension's own model tooltip text also shows those limits separately as `input / output` token counts. Some VS Code surfaces may still render their own combined or rounded context summaries independently of the provider tooltip.
+
 ### Reasoning output modes
 
 | Mode | Behavior |
@@ -171,6 +173,7 @@ Known limitations:
 - This is not currently published on the Visual Studio Marketplace.
 - VSIX installs do not auto-update by default.
 - Behavior depends on VS Code's current Language Model Chat Provider support.
+- Some VS Code model-picker or hover surfaces may show host-computed combined or rounded "max context" values that do not exactly match NanoGPT's separate input and output token limits exposed by this extension.
 - BYOK/provider availability can depend on your Copilot plan or organization policy.
 - NanoGPT model capabilities can vary by model and upstream provider.
 

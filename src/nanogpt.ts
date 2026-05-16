@@ -88,6 +88,18 @@ function inferTokenizerFromModelIdentity(
   return "o200k_base";
 }
 
+function formatTokenCount(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+export function buildModelTooltip(
+  id: string,
+  maxInputTokens: number,
+  maxOutputTokens: number,
+): string {
+  return `NanoGPT model ${id} — ${formatTokenCount(maxInputTokens)} input / ${formatTokenCount(maxOutputTokens)} output tokens`;
+}
+
 /**
  * Builds the per-model configuration schema for NanoGPT models.
  *
@@ -204,7 +216,7 @@ export function mapNanoGptModelsToVscode(
         maxInputTokens: contextWindow,
         maxOutputTokens,
         detail: "NanoGPT",
-        tooltip: `NanoGPT model ${id}`,
+        tooltip: buildModelTooltip(id, contextWindow, maxOutputTokens),
         capabilities: {
           imageInput: Boolean(capabilities.imageInput ?? capabilities.vision ?? entry.vision),
           toolCalling: Boolean(

@@ -30,7 +30,7 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
         maxInputTokens: 200000,
         maxOutputTokens: 32768,
         detail: "NanoGPT",
-        tooltip: "NanoGPT model gpt-5.4-mini",
+        tooltip: "NanoGPT model gpt-5.4-mini — 200,000 input / 32,768 output tokens",
         capabilities: {
           imageInput: true,
           toolCalling: true,
@@ -332,21 +332,25 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
       id: model.id,
       maxInputTokens: model.maxInputTokens,
       maxOutputTokens: model.maxOutputTokens,
+      tooltip: model.tooltip,
     }))).toEqual([
       {
         id: "deepseek/deepseek-v4-flash",
         maxInputTokens: 1048576,
         maxOutputTokens: 384000,
+        tooltip: "NanoGPT model deepseek/deepseek-v4-flash — 1,048,576 input / 384,000 output tokens",
       },
       {
         id: "zai-org/glm-5.1",
         maxInputTokens: 200000,
         maxOutputTokens: 131072,
+        tooltip: "NanoGPT model zai-org/glm-5.1 — 200,000 input / 131,072 output tokens",
       },
       {
         id: "moonshotai/kimi-k2.6",
         maxInputTokens: 256000,
         maxOutputTokens: 65536,
+        tooltip: "NanoGPT model moonshotai/kimi-k2.6 — 256,000 input / 65,536 output tokens",
       },
     ]);
   });

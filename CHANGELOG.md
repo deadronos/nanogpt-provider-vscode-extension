@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ## 0.0.15
 
+- Clarified provider-supplied model tooltips to show separate input and output token limits for discovered NanoGPT models, reducing confusion when VS Code renders its own combined "max context" summaries elsewhere in the UI.
 - Corrected NanoGPT model metadata mapping so the extension now treats `context_length` / `contextWindow` as the model's max input token limit and reports `max_output_tokens` / `maxTokens` separately, instead of subtracting output from input.
 
 ## 0.0.14
