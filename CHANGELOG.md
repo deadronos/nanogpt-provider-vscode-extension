@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.15
+
 - Corrected NanoGPT model metadata mapping so the extension now treats `context_length` / `contextWindow` as the model's max input token limit and reports `max_output_tokens` / `maxTokens` separately, instead of subtracting output from input.
 
 ## 0.0.14
