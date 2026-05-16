@@ -363,4 +363,59 @@ describe("NanoGPT provider lifecycle", () => {
     expect(executeCommand).toHaveBeenCalledWith("workbench.action.chat.manageLanguageModels");
     expect(executeCommand).not.toHaveBeenCalledWith("workbench.action.openChat");
   });
+
+  test("allowlist fallback still shows non-silent missing-key onboarding guidance", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    showWarningMessage.mockResolvedValueOnce("Manage API Key Directly");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    const models = await (registeredProvider as any).provideLanguageModelChatInformation(
+      {
+        silent: false,
+        configuration: { routingMode: "subscription", models: ["gpt-5.4-mini", "moonshotai/kimi-k2.5"] },
+      },
+      createToken() as any,
+    );
+
+    expect(models.map((model: { id: string; detail: string }) => ({ id: model.id, detail: model.detail }))).toEqual([
+      { id: "gpt-5.4-mini", detail: "NanoGPT (unverified)" },
+      { id: "moonshotai/kimi-k2.5", detail: "NanoGPT (unverified)" },
+    ]);
+    expect(showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining("NanoGPT API key"),
+      "Open Manage Language Models",
+      "Manage API Key Directly",
+    );
+    expect(executeCommand).toHaveBeenCalledWith("nanogpt.manage");
+  });
+
+  test("allowlist fallback still shows the one-time silent missing-key warning", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    await (registeredProvider as any).provideLanguageModelChatInformation(
+      {
+        silent: true,
+        configuration: { routingMode: "subscription", models: ["gpt-5.4-mini"] },
+      },
+      createToken() as any,
+    );
+    await (registeredProvider as any).provideLanguageModelChatInformation(
+      {
+        silent: true,
+        configuration: { routingMode: "subscription", models: ["gpt-5.4-mini"] },
+      },
+      createToken() as any,
+    );
+
+    expect(showWarningMessage).toHaveBeenCalledTimes(1);
+    expect(executeCommand).not.toHaveBeenCalledWith("nanogpt.manage");
+  });
 });

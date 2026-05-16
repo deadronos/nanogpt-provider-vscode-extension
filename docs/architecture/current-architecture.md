@@ -331,7 +331,7 @@ The extension favors controlled degradation over hard failure where possible.
 
 Examples:
 
-- no API key during discovery: return fallback or allowlisted models
+- no API key during discovery: return fallback or allowlisted models, while still surfacing the provider-owned missing-key onboarding guidance
 - discovery failure with cached models: reuse cache
 - missing stream body: return without text instead of crashing
 - malformed tool arguments: emit `{}`

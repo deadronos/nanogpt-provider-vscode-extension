@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-- Changed missing-key onboarding behavior so non-silent discovery offers explicit actions `Open Manage Language Models` and `Manage API Key Directly`, while silent discovery shows only a single passive warning and does not open input dialogs or modals.
+- Changed missing-key onboarding behavior so non-silent discovery offers explicit actions `Open Manage Language Models` and `Manage API Key Directly`, while silent discovery shows only a single passive warning and does not open input dialogs or modals, including when discovery is returning allowlisted unverified model stubs without an API key.
 - Fixed stale NanoGPT model lists in newer VS Code builds by emitting `onDidChangeLanguageModelChatInformation` whenever the extension clears its discovery cache, so saving an API key, running `NanoGPT: Refresh Models`, or changing model-affecting `nanogpt.*` settings prompts VS Code to rediscover models instead of requiring provider removal and re-add.
 - Improved provider lifecycle diagnostics by tagging model-catalog invalidations with their trigger reason in the NanoGPT output log.
 

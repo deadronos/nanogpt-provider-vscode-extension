@@ -39,7 +39,7 @@ Discovery is exposed through `provideLanguageModelChatInformation()`.
 
 1. Generate a request id like `discovery-1`.
 2. Resolve API key, routing mode, and optional model allowlist.
-3. If an allowlist exists with no key, synthesize fallback models from the allowlist.
+3. If an allowlist exists with no key, surface the same missing-key onboarding guidance and synthesize fallback models from the allowlist.
 4. If no key exists at all, optionally trigger `nanogpt.manage` and return cached or default models.
 5. Otherwise call `client.discoverModels()`.
 6. Map raw NanoGPT entries to VS Code metadata.

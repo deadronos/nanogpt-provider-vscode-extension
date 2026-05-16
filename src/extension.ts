@@ -376,6 +376,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
           durationMs: Date.now() - startedAt,
         })})`,
       );
+      await this.handleMissingApiKeyOnboarding(options.silent);
       // No API key — return capability stubs for the allowlisted IDs.
       // Use safe pessimistic defaults rather than cloning DEFAULT_MODELS[0] so
       // that capabilities like imageInput and toolCalling are not incorrectly
