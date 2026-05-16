@@ -222,6 +222,7 @@ Implications:
 - subscription and paygo do not share discovery results
 - allowlist variations produce distinct cache entries so one allowlist cannot fall back to another's results
 - clearing cache flushes all keys and routing modes
+- clearing cache must also fire the provider-level model-change event so VS Code knows to rediscover models
 
 ## 11. Testing Contract
 

@@ -63,7 +63,7 @@ Responsibilities:
 
 - Registers the language model chat provider under vendor id `nanogpt`.
 - Registers commands: `nanogpt.manage`, `nanogpt.refreshModels`.
-- Owns the `NanoGptLanguageModelProvider` class with model cache, discovery, chat streaming, and token counting.
+- Owns the `NanoGptLanguageModelProvider` class with model cache, discovery, chat streaming, token counting, and the provider-level model-change event that tells VS Code when discovery should run again.
 - Bridges VS Code `CancellationToken` to `AbortSignal` via `createAbortSignal`.
 
 #### `src/config.ts`

@@ -210,7 +210,9 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
    * `clearModelCache()` flushes all entries.
    */
   private readonly modelCache = new Map<string, VscodeModelMetadata[]>();
+  private readonly modelChangeEmitter = new vscode.EventEmitter<void>();
   private nextRequestNumber = 0;
+  readonly onDidChangeLanguageModelChatInformation = this.modelChangeEmitter.event;
 
   /**
    * @param context - VS Code extension context for secret storage.
@@ -221,6 +223,11 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     private readonly client: NanoGptClient,
     private readonly logger: NanoGptLogger,
   ) {}
+
+  private notifyModelCatalogChanged(reason: string): void {
+    this.logger.info(`[provider] model catalog changed (${formatKeyValuePairs({ reason })})`);
+    this.modelChangeEmitter.fire();
+  }
 
   private nextRequestId(kind: "discovery" | "chat"): string {
     this.nextRequestNumber += 1;
@@ -552,8 +559,9 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
    * Clears the entire model cache so the next discovery call fetches
    * fresh data from NanoGPT for all API keys and routing modes.
    */
-  clearModelCache(): void {
+  clearModelCache(reason = "cache-cleared"): void {
     this.modelCache.clear();
+    this.notifyModelCatalogChanged(reason);
   }
 }
 
@@ -594,6 +602,15 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
+      if (
+        event.affectsConfiguration("nanogpt.apiKey") ||
+        event.affectsConfiguration("nanogpt.routingMode") ||
+        event.affectsConfiguration("nanogpt.provider") ||
+        event.affectsConfiguration("nanogpt.models")
+      ) {
+        provider.clearModelCache("configuration-changed");
+      }
+
       if (event.affectsConfiguration(`nanogpt.${VERBOSE_LOGGING_SETTING}`)) {
         const verboseLoggingEnabled = isVerboseLoggingEnabled();
         logger.info(`NanoGPT verbose logging ${verboseLoggingEnabled ? "enabled" : "disabled"}`);
@@ -624,11 +641,11 @@ export function activate(context: vscode.ExtensionContext): void {
         logger.info("NanoGPT API key cleared from VS Code secret storage");
         void vscode.window.showInformationMessage("NanoGPT API key cleared.");
       }
-      provider.clearModelCache();
+      provider.clearModelCache("api-key-updated");
       logger.debug("NanoGPT model cache cleared after API key update");
     }),
     vscode.commands.registerCommand("nanogpt.refreshModels", () => {
-      provider.clearModelCache();
+      provider.clearModelCache("manual-refresh");
       logger.info("NanoGPT model cache cleared by refresh command");
       void vscode.window.showInformationMessage("NanoGPT model cache cleared.");
     }),

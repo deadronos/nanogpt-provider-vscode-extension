@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Fixed stale NanoGPT model lists in newer VS Code builds by emitting `onDidChangeLanguageModelChatInformation` whenever the extension clears its discovery cache, so saving an API key, running `NanoGPT: Refresh Models`, or changing model-affecting `nanogpt.*` settings prompts VS Code to rediscover models instead of requiring provider removal and re-add.
+- Improved provider lifecycle diagnostics by tagging model-catalog invalidations with their trigger reason in the NanoGPT output log.
+
 ## 0.0.13
 
 - Added tool definition token estimation: `estimateTokenCount()` now accepts an optional `tools` parameter and includes approximate tokens for tool names, descriptions, and input schemas in the result.
