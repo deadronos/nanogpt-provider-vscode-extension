@@ -18,6 +18,25 @@ Scope: Manual verification in a VS Code Extension Development Host for the NanoG
 2. Install the generated VSIX into your test VS Code instance.
 3. Open a clean workspace in the Extension Development Host.
 
+## Missing-key onboarding verification
+
+1. Open the Command Palette.
+2. Run `Chat: Manage Language Models`.
+3. Select or add the `NanoGPT` provider.
+4. If the provider prompts for an API key, enter it.
+5. If the provider configuration UI is unavailable, run `NanoGPT: Manage API Key` and enter the key through the fallback command.
+6. Verify the approved onboarding behavior:
+   - In non-silent discovery, the extension should offer two actions: `Open Manage Language Models` and `Manage API Key Directly`.
+   - In silent discovery, the extension should show only one passive warning and must not open any input dialogs or modal prompts.
+
+Expected:
+
+- The extension prompts for a missing API key when the provider has no key configured.
+- Non-silent discovery offers explicit onboarding actions rather than automatically opening inputs.
+- Silent discovery presents a passive warning only, without opening input/modals.
+- After onboarding, `NanoGPT` appears in the Chat model picker and model discovery works.
+- No missing-key or authentication errors remain.
+
 ## Smoke Checklist
 
 ### 1. Configure key via Chat provider UI

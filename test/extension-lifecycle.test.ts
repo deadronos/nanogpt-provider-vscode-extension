@@ -32,6 +32,20 @@ let configurationListener:
   | ((event: { affectsConfiguration(section: string): boolean }) => void)
   | undefined;
 
+const createSecrets = () => ({
+  delete: vi.fn(async () => undefined),
+  get: vi.fn(async () => undefined),
+  store: vi.fn(async () => undefined),
+});
+const createContext = () => ({
+  secrets: createSecrets(),
+  subscriptions: [] as Array<{ dispose(): void }>,
+});
+const createToken = () => ({
+  isCancellationRequested: false,
+  onCancellationRequested: () => ({ dispose: () => {} }),
+});
+
 const createOutputChannel = vi.fn(() => ({
   trace: vi.fn(),
   debug: vi.fn(),
@@ -41,6 +55,7 @@ const createOutputChannel = vi.fn(() => ({
   dispose: vi.fn(),
 }));
 const executeCommand = vi.fn(async (command: string, ...args: unknown[]) => registeredCommands.get(command)?.(...args));
+const getCommands = vi.fn(async () => [] as string[]);
 const registerCommand = vi.fn((command: string, handler: (...args: unknown[]) => unknown) => {
   registeredCommands.set(command, handler);
   return {
@@ -88,6 +103,7 @@ vi.mock("vscode", () => ({
   },
   commands: {
     executeCommand,
+    getCommands,
     registerCommand,
   },
   lm: {
@@ -114,6 +130,7 @@ describe("NanoGPT provider lifecycle", () => {
     configurationListener = undefined;
     createOutputChannel.mockClear();
     executeCommand.mockClear();
+    getCommands.mockReset();
     onDidChangeConfiguration.mockClear();
     registerCommand.mockClear();
     registerLanguageModelChatProvider.mockClear();
@@ -125,15 +142,7 @@ describe("NanoGPT provider lifecycle", () => {
   test("manage API key and refresh models notify VS Code that chat models changed", async () => {
     const { activate } = await import("../src/extension.js");
 
-    const secrets = {
-      delete: vi.fn(async () => undefined),
-      get: vi.fn(async () => undefined),
-      store: vi.fn(async () => undefined),
-    };
-    const context = {
-      secrets,
-      subscriptions: [] as Array<{ dispose(): void }>,
-    };
+    const context = createContext();
 
     activate(context as any);
 
@@ -145,12 +154,16 @@ describe("NanoGPT provider lifecycle", () => {
 
     showInputBox.mockResolvedValueOnce("test-key");
 
-    await registeredCommands.get("nanogpt.manage")?.();
+    const manageHandler = registeredCommands.get("nanogpt.manage");
+    expect(manageHandler).toBeDefined();
+    await manageHandler?.();
 
-    expect(secrets.store).toHaveBeenCalledWith("nanogpt.apiKey", "test-key");
+    expect(context.secrets.store).toHaveBeenCalledWith("nanogpt.apiKey", "test-key");
     expect(onModelsChanged).toHaveBeenCalledTimes(1);
 
-    await registeredCommands.get("nanogpt.refreshModels")?.();
+    const refreshHandler = registeredCommands.get("nanogpt.refreshModels");
+    expect(refreshHandler).toBeDefined();
+    await refreshHandler?.();
 
     expect(onModelsChanged).toHaveBeenCalledTimes(2);
   });
@@ -158,14 +171,7 @@ describe("NanoGPT provider lifecycle", () => {
   test("model-affecting workspace settings changes notify VS Code to rediscover models", async () => {
     const { activate } = await import("../src/extension.js");
 
-    const context = {
-      secrets: {
-        delete: vi.fn(async () => undefined),
-        get: vi.fn(async () => undefined),
-        store: vi.fn(async () => undefined),
-      },
-      subscriptions: [] as Array<{ dispose(): void }>,
-    };
+    const context = createContext();
 
     activate(context as any);
 
@@ -177,5 +183,184 @@ describe("NanoGPT provider lifecycle", () => {
     });
 
     expect(onModelsChanged).toHaveBeenCalledTimes(1);
+  });
+
+  test("non-silent discovery recommends provider UI before direct API key entry", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    getCommands.mockResolvedValueOnce([
+      "workbench.action.chat.manageModels",
+    ]);
+    showWarningMessage.mockResolvedValueOnce("Open Manage Language Models");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    const models = await (registeredProvider as any).provideLanguageModelChatInformation(
+      { silent: false, configuration: { routingMode: "subscription" } },
+      { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) },
+    );
+
+    expect(models).toHaveLength(1);
+    expect(showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining("NanoGPT API key"),
+      "Open Manage Language Models",
+      "Manage API Key Directly",
+    );
+    expect(executeCommand).toHaveBeenCalledWith("workbench.action.chat.manageModels");
+    expect(executeCommand).not.toHaveBeenCalledWith("nanogpt.manage");
+  });
+
+  test("non-silent discovery can route directly to NanoGPT API key management", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    showWarningMessage.mockResolvedValueOnce("Manage API Key Directly");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    await (registeredProvider as any).provideLanguageModelChatInformation(
+      { silent: false, configuration: { routingMode: "subscription" } },
+      { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) },
+    );
+
+    expect(showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining("NanoGPT API key"),
+      "Open Manage Language Models",
+      "Manage API Key Directly",
+    );
+    expect(executeCommand).toHaveBeenCalledWith("nanogpt.manage");
+  });
+
+  test("silent discovery warns only once per session when the API key is missing", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    const token = createToken();
+
+    await (registeredProvider as any).provideLanguageModelChatInformation(
+      { silent: true, configuration: { routingMode: "subscription" } },
+      token as any,
+    );
+    await (registeredProvider as any).provideLanguageModelChatInformation(
+      { silent: true, configuration: { routingMode: "subscription" } },
+      token as any,
+    );
+
+    expect(showWarningMessage).toHaveBeenCalledTimes(1);
+    expect(executeCommand).not.toHaveBeenCalledWith("nanogpt.manage");
+  });
+
+  test("provider onboarding falls back to direct key management when no provider command is available", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    getCommands.mockResolvedValueOnce([]);
+    showWarningMessage.mockResolvedValueOnce("Open Manage Language Models");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    await (registeredProvider as any).provideLanguageModelChatInformation(
+      { silent: false, configuration: { routingMode: "subscription" } },
+      { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as any,
+    );
+
+    expect(getCommands).toHaveBeenCalled();
+    expect(showWarningMessage).toHaveBeenCalledWith(
+      expect.stringContaining("NanoGPT API key"),
+      "Open Manage Language Models",
+      "Manage API Key Directly",
+    );
+    expect(executeCommand).toHaveBeenCalledWith("nanogpt.manage");
+  });
+
+  test("provider onboarding ignores unrelated openChat runtime commands and falls back to direct management", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    getCommands.mockResolvedValueOnce([
+      "workbench.action.openChat",
+    ]);
+    showWarningMessage.mockResolvedValueOnce("Open Manage Language Models");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    await (registeredProvider as any).provideLanguageModelChatInformation(
+      { silent: false, configuration: { routingMode: "subscription" } },
+      { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as any,
+    );
+
+    expect(executeCommand).toHaveBeenCalledWith("nanogpt.manage");
+    expect(executeCommand).not.toHaveBeenCalledWith("workbench.action.openChat");
+  });
+
+  test("provider onboarding falls back to direct management when runtime command enumeration throws", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    getCommands.mockRejectedValueOnce(new Error("command enumeration failed"));
+    showWarningMessage.mockResolvedValueOnce("Open Manage Language Models");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    await (registeredProvider as any).provideLanguageModelChatInformation(
+      { silent: false, configuration: { routingMode: "subscription" } },
+      { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as any,
+    );
+
+    expect(getCommands).toHaveBeenCalled();
+    expect(executeCommand).toHaveBeenCalledWith("nanogpt.manage");
+  });
+
+  test("provider onboarding falls back to direct management when discovered runtime command execution throws", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    getCommands.mockResolvedValueOnce([
+      "workbench.action.chat.manageLanguageModels",
+    ]);
+    executeCommand.mockRejectedValueOnce(new Error("runtime command failed"));
+    showWarningMessage.mockResolvedValueOnce("Open Manage Language Models");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    await (registeredProvider as any).provideLanguageModelChatInformation(
+      { silent: false, configuration: { routingMode: "subscription" } },
+      { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as any,
+    );
+
+    expect(executeCommand).toHaveBeenCalledWith("workbench.action.chat.manageLanguageModels");
+    expect(executeCommand).toHaveBeenCalledWith("nanogpt.manage");
+  });
+
+  test("provider onboarding discovers and executes runtime management commands beyond the hard-coded id", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    getCommands.mockResolvedValueOnce([
+      "workbench.action.chat.manageLanguageModels",
+      "workbench.action.openChat",
+    ]);
+    showWarningMessage.mockResolvedValueOnce("Open Manage Language Models");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    await (registeredProvider as any).provideLanguageModelChatInformation(
+      { silent: false, configuration: { routingMode: "subscription" } },
+      { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) } as any,
+    );
+
+    expect(executeCommand).toHaveBeenCalledWith("workbench.action.chat.manageLanguageModels");
+    expect(executeCommand).not.toHaveBeenCalledWith("workbench.action.openChat");
   });
 });
