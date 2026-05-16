@@ -27,7 +27,7 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
         name: "GPT-5.4 Mini",
         family: "gpt-5.4-mini",
         version: "gpt-5.4-mini",
-        maxInputTokens: 167232,
+        maxInputTokens: 200000,
         maxOutputTokens: 32768,
         detail: "NanoGPT",
         tooltip: "NanoGPT model gpt-5.4-mini",
@@ -218,7 +218,7 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     );
     expect(paygoModels[0]).toMatchObject({
       id: "moonshotai/kimi-k2.5:thinking",
-      maxInputTokens: 253952,
+      maxInputTokens: 262144,
       maxOutputTokens: 8192,
       capabilities: { imageInput: true, toolCalling: true },
       reasoning: true,
@@ -279,7 +279,7 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
   test("uses default context window and max output tokens when fields are absent", () => {
     const models = mapNanoGptModelsToVscode([{ id: "bare-model", name: "Bare" }]);
     expect(models[0]!.maxOutputTokens).toBe(32768);
-    expect(models[0]!.maxInputTokens).toBe(200000 - 32768);
+    expect(models[0]!.maxInputTokens).toBe(200000);
   });
 
   test("accepts contextWindow and maxTokens as aliases for context_length and max_output_tokens", () => {
@@ -293,14 +293,62 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
       },
     ]);
     expect(models[0]!.maxOutputTokens).toBe(4096);
-    expect(models[0]!.maxInputTokens).toBe(100000 - 4096);
+    expect(models[0]!.maxInputTokens).toBe(100000);
   });
 
-  test("maxInputTokens is at least 1 when maxOutputTokens exceeds contextWindow", () => {
+  test("maxInputTokens follows the reported context window even when maxOutputTokens is larger", () => {
     const models = mapNanoGptModelsToVscode([
       { id: "odd-model", name: "Odd", context_length: 100, max_output_tokens: 200 },
     ]);
-    expect(models[0]!.maxInputTokens).toBe(1);
+    expect(models[0]!.maxInputTokens).toBe(100);
+  });
+
+  test("maps live-like NanoGPT payload values without subtracting output from input", () => {
+    const models = mapNanoGptModelsToVscode([
+      {
+        id: "deepseek/deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        context_length: 1048576,
+        max_output_tokens: 384000,
+        capabilities: { reasoning: true, tool_calling: true },
+      },
+      {
+        id: "zai-org/glm-5.1",
+        name: "GLM 5.1",
+        context_length: 200000,
+        max_output_tokens: 131072,
+        capabilities: { reasoning: true, tool_calling: true },
+      },
+      {
+        id: "moonshotai/kimi-k2.6",
+        name: "Kimi K2.6",
+        context_length: 256000,
+        max_output_tokens: 65536,
+        capabilities: { vision: true, tool_calling: true },
+      },
+    ]);
+
+    expect(models.map((model) => ({
+      id: model.id,
+      maxInputTokens: model.maxInputTokens,
+      maxOutputTokens: model.maxOutputTokens,
+    }))).toEqual([
+      {
+        id: "deepseek/deepseek-v4-flash",
+        maxInputTokens: 1048576,
+        maxOutputTokens: 384000,
+      },
+      {
+        id: "zai-org/glm-5.1",
+        maxInputTokens: 200000,
+        maxOutputTokens: 131072,
+      },
+      {
+        id: "moonshotai/kimi-k2.6",
+        maxInputTokens: 256000,
+        maxOutputTokens: 65536,
+      },
+    ]);
   });
 
   test("maps vision capability alias to imageInput", () => {

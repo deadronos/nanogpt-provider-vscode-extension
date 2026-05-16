@@ -92,6 +92,10 @@ The extension contributes the following settings:
 
 Bridge mode note: direct `bridge` mode, and `auto` retries that switch into bridge mode, do not forward VS Code's native `tool_choice` field directly. Bridge turns now get one JSON-only repair retry when the model answers with malformed prose. When `toolMode: "required"` still yields no usable tool calls after repair, the extension emits a provider-owned warning text part instead of surfacing raw fallback prose.
 
+### Model token limits
+
+For discovered NanoGPT models, the extension treats NanoGPT's `context_length` / `contextWindow` as the model's max input token limit and reports `max_output_tokens` / `maxTokens` separately as the max output token limit. It does not subtract output tokens from the reported input limit.
+
 ### Reasoning output modes
 
 | Mode | Behavior |

@@ -157,7 +157,7 @@ export function buildModelConfigurationSchema(): VscodeModelMetadata["configurat
  * - Filters by optional allowlist when provided.
  * - Normalises variant field names (`context_length` / `contextWindow`,
  *   `max_output_tokens` / `maxTokens`).
- * - Computes `maxInputTokens` as `contextWindow - maxOutputTokens`.
+ * - Treats `context_length` / `contextWindow` as `maxInputTokens` directly.
  * - Maps `vision` → `imageInput`, `tool_calling` → `toolCalling`,
  *   and `parallel_tool_calls` → `internal.parallelToolCalls`.
  * - `structured_output` and `pdf_upload` are intentionally excluded
@@ -201,7 +201,7 @@ export function mapNanoGptModelsToVscode(
         name: String(entry.displayName ?? entry.name ?? id),
         family,
         version,
-        maxInputTokens: Math.max(1, contextWindow - maxOutputTokens),
+        maxInputTokens: contextWindow,
         maxOutputTokens,
         detail: "NanoGPT",
         tooltip: `NanoGPT model ${id}`,

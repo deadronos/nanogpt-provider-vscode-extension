@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 type VoidListener = () => void;
 
@@ -80,6 +80,7 @@ const registerLanguageModelChatProvider = vi.fn((vendor: string, provider: unkno
 const showInformationMessage = vi.fn();
 const showInputBox = vi.fn();
 const showWarningMessage = vi.fn();
+const originalNanoGptApiKey = process.env.NANOGPT_API_KEY;
 
 vi.mock("vscode", () => ({
   EventEmitter,
@@ -125,6 +126,7 @@ vi.mock("vscode", () => ({
 
 describe("NanoGPT provider lifecycle", () => {
   beforeEach(() => {
+    delete process.env.NANOGPT_API_KEY;
     registeredCommands.clear();
     registeredProvider = undefined;
     configurationListener = undefined;
@@ -137,6 +139,15 @@ describe("NanoGPT provider lifecycle", () => {
     showInformationMessage.mockReset();
     showInputBox.mockReset();
     showWarningMessage.mockReset();
+  });
+
+  afterAll(() => {
+    if (originalNanoGptApiKey === undefined) {
+      delete process.env.NANOGPT_API_KEY;
+      return;
+    }
+
+    process.env.NANOGPT_API_KEY = originalNanoGptApiKey;
   });
 
   test("manage API key and refresh models notify VS Code that chat models changed", async () => {

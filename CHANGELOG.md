@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Corrected NanoGPT model metadata mapping so the extension now treats `context_length` / `contextWindow` as the model's max input token limit and reports `max_output_tokens` / `maxTokens` separately, instead of subtracting output from input.
+
 ## 0.0.14
 
 - Changed missing-key onboarding behavior so non-silent discovery offers explicit actions `Open Manage Language Models` and `Manage API Key Directly`, while silent discovery shows only a single passive warning and does not open input dialogs or modals, including when discovery is returning allowlisted unverified model stubs without an API key.

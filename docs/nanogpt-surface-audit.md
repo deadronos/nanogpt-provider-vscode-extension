@@ -125,7 +125,7 @@ Current coverage:
 - Maps `capabilities.tool_calling` or top-level `tool_calling` to VS Code `capabilities.toolCalling`.
 - Maps `capabilities.reasoning` or top-level `reasoning` to model `reasoning`.
 - Adds a per-model configuration schema for API key, routing mode, provider, reasoning effort, and reasoning output.
-- Computes `maxInputTokens` as `context_length - max_output_tokens`, with conservative fallbacks.
+- Treats `context_length` / `contextWindow` as the model's max input token limit directly, and reports `max_output_tokens` / `maxTokens` as a separate max output token limit.
 
 Gaps and risks:
 
