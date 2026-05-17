@@ -1,5 +1,10 @@
 # NanoGPT Provider for VS Code
 
+## Note:
+-----
+Mostly tested with current VS Code Insiders, there seem ongoing changes to the BYOK path, probably in preparation for introducing usagebased billing in June.
+-----
+
 Unofficial VS Code extension that adds NanoGPT models to the VS Code / Copilot Chat model picker through VS Code's Language Model Chat Provider API.
 
 This lets you use supported NanoGPT models from inside VS Code Chat when your VS Code/Copilot setup allows bring-your-own language model providers.
