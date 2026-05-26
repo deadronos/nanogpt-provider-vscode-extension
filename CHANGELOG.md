@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Fixed custom BYOK provider discovery to stay truly silent when credentials are missing: silent model resolution now returns no models and shows no warning UI instead of surfacing fallback entries that would fail at chat time.
+- Added native provider management integration via the `languageModelChatProviders.managementCommand` contribution and simplified missing-key onboarding to route directly to `NanoGPT: Manage API Key`.
+- Added regression coverage for silent discovery, manifest/provider schema coupling, VS Code message-part compatibility shims, and activation on builds that lack the chat-provider API.
+
 ## 0.0.15
 
 - Clarified provider-supplied model tooltips to show separate input and output token limits for discovered NanoGPT models, reducing confusion when VS Code renders its own combined "max context" summaries elsewhere in the UI.

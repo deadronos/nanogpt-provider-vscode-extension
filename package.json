@@ -41,6 +41,7 @@
       {
         "vendor": "nanogpt",
         "displayName": "NanoGPT",
+        "managementCommand": "nanogpt.manage",
         "configuration": {
           "type": "object",
           "required": [
