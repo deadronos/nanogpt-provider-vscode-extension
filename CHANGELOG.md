@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Updated transitive dependencies in `package-lock.json` to resolve 3 npm audit vulnerabilities: `brace-expansion` 5.0.5 → 5.0.6 (DoS), `qs` 6.15.1 → 6.15.2 (DoS), `tmp` 0.2.5 → 0.2.6 (path traversal).
+
 ## 0.0.16
 
 - Suppressed thin scaffolding preambles (e.g. "Let me gather related files..") before tool calls in native tool-calling mode so VS Code's Copilot Chat loop-detection guard does not misfire on BYOK provider streams.
