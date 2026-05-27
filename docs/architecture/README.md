@@ -58,6 +58,7 @@ Implemented today:
 - NanoGPT model discovery for `subscription` and `paygo` routing modes.
 - Silent model discovery returns no models and shows no UI when an API key is unavailable, matching VS Code's silent-resolution contract for BYOK providers.
 - Streaming chat completions with text, reasoning, and tool call support, including `native`, `auto`, and `bridge` tool-calling strategies. `native` is the default again; `auto` and `bridge` are explicit opt-in modes.
+- In `native` mode with tools, thin scaffolding text before tool calls is suppressed to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams.
 - In `auto` mode, native tool turns are buffered so the client can retry once through the bridge path when a model emits no tool calls and either no visible text or only likely scaffolding text.
 - Malformed bridge replies get one JSON-only repair retry before fallback handling, and when `toolMode: "required"` still omits usable tool calls the client returns `requiredToolWarning` and the provider emits it as a warning `LanguageModelTextPart` instead of surfacing raw prose.
 - Vision/image input via `LanguageModelDataPart` image payload conversion.

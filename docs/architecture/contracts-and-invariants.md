@@ -186,6 +186,7 @@ Invariants:
 - malformed streamed tool arguments degrade to `{}` rather than crash the stream
 - `toolCallingStrategy` is extension-local and accepts `native | auto | bridge`
 - `toolCallingStrategy` defaults to `native` when omitted or invalid; `auto` and `bridge` are explicit opt-in alternatives
+- `native` with tools buffers text and reasoning deltas and suppresses thin scaffolding preambles (e.g. "Let me gather related files..") when the stream also contains tool calls, to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams
 - `auto` retries at most once, and only when a tool-enabled native turn yields no tool calls and either no visible text or only low-signal scaffolding text
 - `bridge` rewrites tool history into plain messages plus a strict JSON-only system contract, and preserves `toolMode: "required"` through prompt instructions rather than native `tool_choice`
 - malformed bridged replies get one JSON-only repair retry before the client decides whether to parse tool calls, accept a final bridged answer, or fall back

@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Suppressed thin scaffolding preambles (e.g. "Let me gather related files..") before tool calls in native tool-calling mode so VS Code's Copilot Chat loop-detection guard does not misfire on BYOK provider streams.
 - Fixed custom BYOK provider discovery to stay truly silent when credentials are missing: silent model resolution now returns no models and shows no warning UI instead of surfacing fallback entries that would fail at chat time.
 - Added native provider management integration via the `languageModelChatProviders.managementCommand` contribution and simplified missing-key onboarding to route directly to `NanoGPT: Manage API Key`.
 - Added regression coverage for silent discovery, manifest/provider schema coupling, VS Code message-part compatibility shims, and activation on builds that lack the chat-provider API.

@@ -16,7 +16,7 @@ import {
   type VscodeModelMetadata,
   parseToolCallingBridgeResponse,
 } from "./nanogpt.js";
-import { getHeader, withTimeout, type ManagedAbortSignal } from "./utils.js";
+import { getHeader, withTimeout, formatKeyValuePairs, type ManagedAbortSignal } from "./utils.js";
 
 type FetchLike = typeof fetch;
 
@@ -315,7 +315,13 @@ export class NanoGptClient {
       const toolCallingStrategy = params.toolCallingStrategy ?? "native";
       const hasTools = Boolean(params.tools?.length);
       const shouldBufferNativeTurn = toolCallingStrategy === "auto" && hasTools;
+      // In native mode with tools, buffer text/reasoning so we can suppress
+      // thin scaffolding preambles (e.g. "Let me gather related files..") that
+      // appear before tool calls.  Such text can trigger VS Code's Copilot Chat
+      // loop-detection guard on BYOK providers, causing the request to stall.
+      const shouldDeferText = toolCallingStrategy === "native" && hasTools;
       const bufferedNativeParts: NanoGptResponsePart[] = [];
+      const deferredTextParts: NanoGptResponsePart[] = [];
 
       if (toolCallingStrategy === "bridge" && hasTools) {
         const bridgeResult = await this.streamChatCompletionsViaBridge({
@@ -335,10 +341,14 @@ export class NanoGptClient {
         requestId,
         onText: shouldBufferNativeTurn
           ? (text) => bufferedNativeParts.push({ type: "text", text })
-          : params.onText,
+          : shouldDeferText
+            ? (text) => deferredTextParts.push({ type: "text", text })
+            : params.onText,
         onReasoning: shouldBufferNativeTurn
           ? (text) => bufferedNativeParts.push({ type: "reasoning", text })
-          : params.onReasoning,
+          : shouldDeferText
+            ? (text) => deferredTextParts.push({ type: "reasoning", text })
+            : params.onReasoning,
         onToolCall: shouldBufferNativeTurn
           ? (toolCall) => bufferedNativeParts.push(toolCall)
           : params.onToolCall,
@@ -368,6 +378,20 @@ export class NanoGptClient {
           bridgeTelemetry: bridgeResult.bridgeTelemetry,
           requiredToolWarning: bridgeResult.requiredToolWarning,
         };
+      }
+
+      // Suppress thin scaffolding text when the model also returned tool calls.
+      // The preamble (e.g. "Let me check the files..") adds no value and can
+      // trigger VS Code's Copilot Chat loop-detection guard on BYOK streams.
+      if (shouldDeferText && deferredTextParts.length > 0) {
+        const deferredText = collectTextParts(deferredTextParts);
+        if (nativeSummary.toolCallCount > 0 && isLikelyToolScaffoldingText(deferredText)) {
+          this.logger.info(
+            `[${requestId}] suppressed scaffolding text before tool calls (${formatKeyValuePairs({ chars: deferredText.length })})`,
+          );
+        } else {
+          this.emitParts(deferredTextParts, params);
+        }
       }
 
       if (shouldBufferNativeTurn) {
