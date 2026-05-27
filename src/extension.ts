@@ -215,21 +215,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
   readonly onDidChangeLanguageModelChatInformation = this.modelChangeEmitter.event;
   private static readonly onboardingWarningMessage =
     "NanoGPT API key is required to discover models. You can manage provider settings or enter a key directly.";
-  private static readonly openManageLanguageModelsAction = "Open Manage Language Models";
-  private static readonly manageApiKeyDirectlyAction = "Manage API Key Directly";
-  // Known runtime command IDs that should be preferred when available.
-  // Runtime probing is still authoritative, so this list is intentionally small.
-  private static readonly preferredLanguageModelManagementCommands = [
-    "workbench.action.chat.manageModels",
-    "workbench.action.chat.manageLanguageModels",
-  ];
-  private static readonly runtimeLanguageModelManagementCommandPattern =
-    /manage(?:LanguageModels|LanguageModel|Models|Model)/i;
-  private static readonly runtimeLanguageModelManagementCommandBlacklist = [
-    /openchat/i,
-    /\bopen\b.*\bchat\b/i,
-  ];
-  private hasShownMissingApiKeyWarningThisSession = false;
+  private static readonly manageApiKeyAction = "Manage API Key";
 
   /**
    * @param context - VS Code extension context for secret storage.
@@ -252,77 +238,17 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     return `${kind}-${this.nextRequestNumber}`;
   }
 
-  private static isPlausibleLanguageModelManagementCommand(command: string): boolean {
-    const normalized = String(command).trim();
-    if (normalized.length === 0) {
-      return false;
-    }
-
-    const blacklisted = NanoGptLanguageModelProvider.runtimeLanguageModelManagementCommandBlacklist.some((pattern) =>
-      pattern.test(normalized),
-    );
-    if (blacklisted) {
-      return false;
-    }
-
-    return NanoGptLanguageModelProvider.runtimeLanguageModelManagementCommandPattern.test(normalized);
-  }
-
-  private async probeLanguageModelManagementCommand(): Promise<string | undefined> {
-    try {
-      const commands = await vscode.commands.getCommands(true);
-      for (const candidate of NanoGptLanguageModelProvider.preferredLanguageModelManagementCommands) {
-        if (commands.includes(candidate)) {
-          return candidate;
-        }
-      }
-
-      for (const command of commands) {
-        if (NanoGptLanguageModelProvider.isPlausibleLanguageModelManagementCommand(command)) {
-          return command;
-        }
-      }
-    } catch {
-      // If runtime command enumeration fails, fall back to the hard-coded command.
-    }
-    return undefined;
-  }
-
-  private async openLanguageModelManagementCommand(): Promise<void> {
-    const command = await this.probeLanguageModelManagementCommand();
-    if (command) {
-      try {
-        await vscode.commands.executeCommand(command);
-        return;
-      } catch {
-        // Fall through to the fallback command.
-      }
-    }
-    await vscode.commands.executeCommand("nanogpt.manage");
-  }
-
   private async handleMissingApiKeyOnboarding(silent: boolean): Promise<void> {
     if (silent) {
-      if (this.hasShownMissingApiKeyWarningThisSession) {
-        return;
-      }
-      this.hasShownMissingApiKeyWarningThisSession = true;
-      void vscode.window.showWarningMessage(NanoGptLanguageModelProvider.onboardingWarningMessage);
       return;
     }
 
     const action = await vscode.window.showWarningMessage(
       NanoGptLanguageModelProvider.onboardingWarningMessage,
-      NanoGptLanguageModelProvider.openManageLanguageModelsAction,
-      NanoGptLanguageModelProvider.manageApiKeyDirectlyAction,
+      NanoGptLanguageModelProvider.manageApiKeyAction,
     );
 
-    if (action === NanoGptLanguageModelProvider.openManageLanguageModelsAction) {
-      await this.openLanguageModelManagementCommand();
-      return;
-    }
-
-    if (action === NanoGptLanguageModelProvider.manageApiKeyDirectlyAction) {
+    if (action === NanoGptLanguageModelProvider.manageApiKeyAction) {
       await vscode.commands.executeCommand("nanogpt.manage");
     }
   }
@@ -370,6 +296,16 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     );
 
     if (allowlist.length > 0 && !apiKey) {
+      if (options.silent) {
+        this.logger.info(
+          `[${requestId}] model discovery skipped without API key during silent allowlist resolution (${formatKeyValuePairs({
+            allowlistCount: allowlist.length,
+            durationMs: Date.now() - startedAt,
+          })})`,
+        );
+        return [];
+      }
+
       this.logger.warn(
         `[${requestId}] model discovery returned allowlist fallback (${formatKeyValuePairs({
           allowlistCount: allowlist.length,
@@ -403,6 +339,16 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     }
 
     if (!apiKey) {
+      if (options.silent) {
+        this.logger.info(
+          `[${requestId}] model discovery skipped without API key during silent resolution (${formatKeyValuePairs({
+            routingMode,
+            durationMs: Date.now() - startedAt,
+          })})`,
+        );
+        return [];
+      }
+
       this.logger.warn(
         `[${requestId}] model discovery missing API key; returning fallback models (${formatKeyValuePairs({
           silent: options.silent,

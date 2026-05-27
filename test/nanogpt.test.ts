@@ -239,13 +239,16 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     const pkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json"), "utf8")) as {
       contributes: {
         languageModelChatProviders: Array<{
+          managementCommand?: string;
           configuration: { properties: Record<string, unknown> };
         }>;
       };
     };
-    const pkgProps = pkg.contributes.languageModelChatProviders[0]!.configuration.properties;
+    const providerContribution = pkg.contributes.languageModelChatProviders[0]!;
+    const pkgProps = providerContribution.configuration.properties;
     const schemaProps = buildModelConfigurationSchema().properties;
 
+    expect(providerContribution.managementCommand).toBe("nanogpt.manage");
     expect(Object.keys(schemaProps).sort()).toEqual(Object.keys(pkgProps).sort());
     expect(schemaProps.toolCallingStrategy).toEqual(pkgProps.toolCallingStrategy);
   });

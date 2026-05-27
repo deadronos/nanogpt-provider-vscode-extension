@@ -110,8 +110,9 @@ Chat execution is exposed through `provideLanguageModelChatResponse()`.
 3. The client performs a streaming `POST`.
 4. The client reads the SSE body incrementally.
 5. SSE deltas are converted to typed response parts.
-6. In `auto`, a tool-enabled native turn that yields no tool calls and either no visible text or only likely scaffolding text is retried once with the bridge prompt.
-7. The provider maps those parts to VS Code response parts and reports them via `progress.report(...)`.
+6. In `native` mode with tools, thin scaffolding text (e.g. "Let me gather related files..") that precedes tool calls is suppressed from `progress.report()` to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams.
+7. In `auto`, a tool-enabled native turn that yields no tool calls and either no visible text or only likely scaffolding text is retried once with the bridge prompt.
+8. The provider maps those parts to VS Code response parts and reports them via `progress.report(...)`.
 
 ### Response mapping
 

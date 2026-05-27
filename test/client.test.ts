@@ -1283,4 +1283,100 @@ describe("NanoGptClient", () => {
     expect(traceLog).toMatch(/textParts=1/);
     expect(traceLog).toMatch(/reasoningParts=1/);
   });
+
+  test("suppresses scaffolding text before tool calls in native mode with tools", async () => {
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"content":"Let me gather related files and inspect the project structure."}}]}\n\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"README.md\\"}"}}]}}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+        { status: 200 },
+      );
+
+    const { logger, entries } = createLoggerSink();
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const texts: string[] = [];
+    const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Review the project" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      toolCallingStrategy: "native",
+      onText: (text) => texts.push(text),
+      onToolCall: (toolCall) => toolCalls.push(toolCall),
+    });
+
+    expect(texts).toEqual([]);
+    expect(toolCalls).toEqual([
+      { type: "tool_call", callId: "call_1", name: "read_file", input: { path: "README.md" } },
+    ]);
+    expect(entries).toContainEqual(
+      expect.stringContaining("info:[chat] suppressed scaffolding text before tool calls"),
+    );
+  });
+
+  test("preserves substantive text alongside tool calls in native mode", async () => {
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"content":"The README already documents the available commands. Let me check the source code for any undocumented features."}}]}\n\n',
+          'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\\"path\\":\\"src/index.ts\\"}"}}]}}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+        { status: 200 },
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const texts: string[] = [];
+    const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Review the project" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      toolCallingStrategy: "native",
+      onText: (text) => texts.push(text),
+      onToolCall: (toolCall) => toolCalls.push(toolCall),
+    });
+
+    expect(texts).toEqual([
+      "The README already documents the available commands. Let me check the source code for any undocumented features.",
+    ]);
+    expect(toolCalls).toEqual([
+      { type: "tool_call", callId: "call_1", name: "read_file", input: { path: "src/index.ts" } },
+    ]);
+  });
+
+  test("streams text normally when no tool calls arrive in native mode with tools", async () => {
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"content":"Here is the project overview."}}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+        { status: 200 },
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+    const texts: string[] = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Summarize the project" }],
+      routingMode: "subscription",
+      tools: [{ name: "read_file", description: "Read a workspace file" }],
+      toolCallingStrategy: "native",
+      onText: (text) => texts.push(text),
+    });
+
+    expect(texts).toEqual(["Here is the project overview."]);
+  });
 });
