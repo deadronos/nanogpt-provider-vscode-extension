@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Bumped `engines.vscode` to `^1.120.0` and `@types/vscode` to `^1.120.0` to track VS Code Insiders / latest stable. The `LanguageModelChatProvider`, `LanguageModelChatInformation`, `LanguageModelChatCapabilities`, `PrepareLanguageModelChatModelOptions`, and `lm.registerLanguageModelChatProvider` surface is unchanged from `1.118.0` (the only delta between 1.118.0 and 1.120.0 in `index.d.ts` is a tree-view JSDoc note); the bump is a maintenance alignment with no source changes required.
+
 ## 0.0.16
 
 - Updated transitive dependencies in `package-lock.json` to resolve 3 npm audit vulnerabilities: `brace-expansion` 5.0.5 → 5.0.6 (DoS), `qs` 6.15.1 → 6.15.2 (DoS), `tmp` 0.2.5 → 0.2.6 (path traversal).

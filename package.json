@@ -19,7 +19,7 @@
   },
   "type": "module",
   "engines": {
-    "vscode": "^1.105.0"
+    "vscode": "^1.120.0"
   },
   "extensionKind": [
     "ui"
@@ -224,7 +224,7 @@
   "devDependencies": {
     "@stylistic/eslint-plugin": "^4.4.1",
     "@types/node": "^24.6.0",
-    "@types/vscode": "^1.105.0",
+    "@types/vscode": "^1.120.0",
     "@vitest/coverage-v8": "^4.1.5",
     "@vscode/vsce": "^3.9.1",
     "eslint": "^10.3.0",
