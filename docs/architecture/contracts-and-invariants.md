@@ -225,6 +225,20 @@ Implications:
 - clearing cache flushes all keys and routing modes
 - clearing cache must also fire the provider-level model-change event so VS Code knows to rediscover models
 
+Cache lookup is consulted **before** calling `discoverModels`. A populated in-memory entry (whether populated by a previous successful discovery in the same session or hydrated from `context.globalState` on activation) short-circuits the network call and is returned immediately. A discovery failure still falls back to the same cache so a transient outage cannot leave the model picker empty.
+
+### Persisted model cache (cross-session)
+
+The in-memory model cache is mirrored to `context.globalState` under key `nanogpt.modelCache` (versioned schema `version: 1`) so cold starts with a flaky network still surface a last-known-good model list. Hydration happens in the constructor; persistence happens after each successful discovery; `clearModelCache` also writes `undefined` to the same key.
+
+Persisted cache contract:
+
+- schema is `{ version: 1, entries: Record<cacheKey, VscodeModelMetadata[]> }`
+- mismatched or malformed `version` values cause the persisted copy to be ignored
+- entries with non-array values are skipped defensively
+- persisted cache failures (read or write) are logged at warn level and never thrown into the discovery path
+- configuration changes to `nanogpt.apiKey`, `nanogpt.routingMode`, or `nanogpt.models` clear both the in-memory and persisted caches
+
 ## 11. Testing Contract
 
 Current automated test split:
