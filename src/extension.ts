@@ -20,6 +20,13 @@ import { toCoreMessages, toToolMode, createThinkingPart } from "./vscode-messagi
 import { formatKeyValuePairs, formatRoleCounts, formatError, isObject, sha256Hex } from "./utils.js";
 
 const VENDOR_ID = "nanogpt";
+const PERSISTED_MODEL_CACHE_KEY = "nanogpt.modelCache";
+const PERSISTED_MODEL_CACHE_VERSION = 1;
+
+type PersistedModelCache = {
+  version: number;
+  entries: Record<string, VscodeModelMetadata[]>;
+};
 
 type ChatProviderApi = {
   provideLanguageModelChatInformation(
@@ -226,7 +233,73 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     private readonly context: vscode.ExtensionContext,
     private readonly client: NanoGptClient,
     private readonly logger: NanoGptLogger,
-  ) {}
+  ) {
+    this.hydrateModelCache();
+  }
+
+  /**
+   * Restores the in-memory model cache from `context.globalState` so a
+   * cold start with a flaky network still has a last-known-good model
+   * list. Defensive against malformed or version-mismatched payloads.
+   */
+  private hydrateModelCache(): void {
+    const globalState = this.context.globalState;
+    if (!globalState) {
+      return;
+    }
+
+    try {
+      const persisted = globalState.get<PersistedModelCache>(PERSISTED_MODEL_CACHE_KEY);
+      if (!persisted || persisted.version !== PERSISTED_MODEL_CACHE_VERSION) {
+        return;
+      }
+
+      let entryCount = 0;
+      for (const [key, value] of Object.entries(persisted.entries ?? {})) {
+        if (Array.isArray(value)) {
+          this.modelCache.set(key, value as VscodeModelMetadata[]);
+          entryCount += 1;
+        }
+      }
+
+      this.logger.debug(
+        `[provider] model cache hydrated from globalState (${formatKeyValuePairs({ entryCount })})`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[provider] failed to hydrate model cache from globalState: ${formatError(error)}`,
+      );
+    }
+  }
+
+  /**
+   * Persists the in-memory model cache to `context.globalState` so the
+   * next cold start can serve a last-known-good model list when the
+   * NanoGPT API is unreachable. Errors are logged but never thrown so
+   * the calling discovery path is not affected by persistence failures.
+   */
+  private async persistModelCache(): Promise<void> {
+    const globalState = this.context.globalState;
+    if (!globalState) {
+      return;
+    }
+
+    try {
+      const entries: Record<string, VscodeModelMetadata[]> = {};
+      for (const [key, value] of this.modelCache.entries()) {
+        entries[key] = value;
+      }
+
+      await globalState.update(PERSISTED_MODEL_CACHE_KEY, {
+        version: PERSISTED_MODEL_CACHE_VERSION,
+        entries,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[provider] failed to persist model cache to globalState: ${formatError(error)}`,
+      );
+    }
+  }
 
   private notifyModelCatalogChanged(reason: string): void {
     this.logger.info(`[provider] model catalog changed (${formatKeyValuePairs({ reason })})`);
@@ -361,6 +434,24 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     }
 
     const cacheKey = createModelCacheKey(apiKey, routingMode, allowlistKey);
+
+    const cached = this.modelCache.get(cacheKey);
+    if (cached) {
+      this.logger.info(
+        `[${requestId}] model discovery served from cache (${formatKeyValuePairs({
+          returnedModels: cached.length,
+          durationMs: Date.now() - startedAt,
+        })})`,
+      );
+      this.logger.debug(
+        `[${requestId}] model discovery cache hit (${formatKeyValuePairs({
+          routingMode,
+          cacheKeyReused: true,
+        })})`,
+      );
+      return cached;
+    }
+
     const abortSignal = createAbortSignal(token);
     try {
       const models = await this.client.discoverModels({
@@ -372,6 +463,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
       });
       const result = models.length > 0 ? models : DEFAULT_MODELS;
       this.modelCache.set(cacheKey, result);
+      await this.persistModelCache();
       this.logger.info(
         `[${requestId}] model discovery completed (${formatKeyValuePairs({
           returnedModels: result.length,
@@ -595,10 +687,18 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
 
   /**
    * Clears the entire model cache so the next discovery call fetches
-   * fresh data from NanoGPT for all API keys and routing modes.
+   * fresh data from NanoGPT for all API keys and routing modes. The
+   * persisted copy in `context.globalState` is also cleared so stale
+   * last-known-good model lists do not survive a manual refresh.
    */
   clearModelCache(reason = "cache-cleared"): void {
     this.modelCache.clear();
+
+    const globalState = this.context.globalState;
+    if (globalState) {
+      void globalState.update(PERSISTED_MODEL_CACHE_KEY, undefined);
+    }
+
     this.notifyModelCatalogChanged(reason);
   }
 }
@@ -643,7 +743,6 @@ export function activate(context: vscode.ExtensionContext): void {
       if (
         event.affectsConfiguration("nanogpt.apiKey") ||
         event.affectsConfiguration("nanogpt.routingMode") ||
-        event.affectsConfiguration("nanogpt.provider") ||
         event.affectsConfiguration("nanogpt.models")
       ) {
         provider.clearModelCache("configuration-changed");

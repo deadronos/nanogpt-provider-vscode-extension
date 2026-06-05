@@ -41,16 +41,17 @@ Discovery is exposed through `provideLanguageModelChatInformation()`.
 2. Resolve API key, routing mode, and optional model allowlist.
 3. If an allowlist exists with no key, surface the same missing-key onboarding guidance and synthesize fallback models from the allowlist.
 4. If no key exists at all, optionally trigger `nanogpt.manage` and return cached or default models.
-5. Otherwise call `client.discoverModels()`.
-6. Map raw NanoGPT entries to VS Code metadata.
-7. Cache result by `${apiKey}|${routingMode}`.
-8. Return discovered models, or default model if the list is empty.
+5. Look up the in-memory model cache by `${routingMode}:${sha256Hex(apiKey)}[:allowlist]`. If populated (either from a prior successful discovery in this session or hydrated from `context.globalState` on activation), return it without calling the network.
+6. Otherwise call `client.discoverModels()`.
+7. Map raw NanoGPT entries to VS Code metadata.
+8. Cache result by `${routingMode}:${sha256Hex(apiKey)}[:allowlist]` and persist the cache to `context.globalState`.
+9. Return discovered models, or default model if the list is empty.
 
 ### Refresh triggers
 
-- `nanogpt.manage` saves or clears the secret-stored API key, clears the discovery cache, and fires the provider model-change event.
-- `nanogpt.refreshModels` clears the discovery cache and fires the provider model-change event.
-- Workspace configuration changes to `nanogpt.apiKey`, `nanogpt.routingMode`, `nanogpt.provider`, or `nanogpt.models` clear the discovery cache and fire the provider model-change event.
+- `nanogpt.manage` saves or clears the secret-stored API key, clears the discovery cache (in-memory and persisted), and fires the provider model-change event.
+- `nanogpt.refreshModels` clears the discovery cache (in-memory and persisted) and fires the provider model-change event.
+- Workspace configuration changes to `nanogpt.apiKey`, `nanogpt.routingMode`, or `nanogpt.models` clear the discovery cache (in-memory and persisted) and fire the provider model-change event. `nanogpt.provider` does not affect the discovery cache because `discoverModels` does not consume it; it is forwarded to chat-completion requests as the `X-Provider` header.
 
 ### Transport details
 
@@ -64,6 +65,7 @@ Discovery is exposed through `provideLanguageModelChatInformation()`.
 
 ### Fallback behavior
 
+- on a cache hit, the cached models are returned without a network call
 - on discovery failure, cached models for that key/routing pair are reused if present
 - otherwise `DEFAULT_MODELS` is returned
 
@@ -71,20 +73,26 @@ Discovery is exposed through `provideLanguageModelChatInformation()`.
 sequenceDiagram
     participant VSCode
     participant Provider
+    participant GlobalState
     participant Client
     participant NanoGPT
 
     VSCode->>Provider: provideLanguageModelChatInformation()
     Provider->>Provider: resolve config + api key
+    Provider->>GlobalState: hydrate persisted cache (constructor)
     alt allowlist present and no api key
         Provider-->>VSCode: allowlisted fallback models
     else no api key
         Provider-->>VSCode: cached/default models
+    else cache hit
+        Provider-->>VSCode: cached models (no network)
     else discovery request
         Provider->>Client: discoverModels(requestId, routingMode, allowlist)
         Client->>NanoGPT: GET /models?detailed=true
         NanoGPT-->>Client: model list
         Client-->>Provider: mapped VscodeModelMetadata[]
+        Provider->>Provider: cache result in memory
+        Provider->>GlobalState: persist cache
         Provider-->>VSCode: discovered models
     end
 ```

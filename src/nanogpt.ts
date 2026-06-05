@@ -68,6 +68,58 @@ import {
 } from "./nanogpt-types.js";
 import { getTextPartValue, toNanoGptImagePart } from "./nanogpt-message.js";
 
+/**
+ * Patterns identifying OpenAI families that use the `cl100k_base` BPE
+ * vocabulary (legacy GPT-3.5 / GPT-4, base GPT-3, embeddings, and
+ * Codex-style models). The patterns are matched as standalone tokens
+ * (`\b` boundaries) to avoid spurious hits like `gpt-4o-mini`.
+ */
+const CL100K_BASE_MODEL_PATTERNS: ReadonlyArray<RegExp> = [
+  /\bgpt-3\.5\b/,
+  /\bgpt-3\.5-\b/,
+  /\bgpt-4\b/,
+  /\bgpt-4-\b/,
+  /\bgpt-35-turbo\b/,
+  /\btext-davinci\b/,
+  /\btext-curie\b/,
+  /\btext-babbage\b/,
+  /\btext-ada\b/,
+  /\btext-embedding-ada\b/,
+  /\bcode-davinci\b/,
+  /\bcode-cushman\b/,
+  /\bcode-search\b/,
+  /\bdavinci\b/,
+  /\bcurie\b/,
+  /\bbabbage\b/,
+  /\bada\b/,
+];
+
+/**
+ * Patterns identifying modern OpenAI families that use `o200k_base`,
+ * which the legacy detector above would otherwise misclassify as
+ * `cl100k_base` (e.g. `gpt-4.1`, `gpt-5`, the `o-series`).
+ */
+const O200K_BASE_OVERRIDE_PATTERNS: ReadonlyArray<RegExp> = [
+  /\bgpt-4o\b/,
+  /\bgpt-4\.1\b/,
+  /\bgpt-4\.5\b/,
+  /\bgpt-5\b/,
+  /\bgpt-oss\b/,
+  /\bo[1-9](?:-(?:mini|pro))?\b/,
+];
+
+/**
+ * Heuristically infers a NanoGPT tokenizer family from model-identity
+ * fields (id, family, name). Returns `cl100k_base` for legacy OpenAI
+ * families and `o200k_base` for modern OpenAI families and unknown
+ * third-party models.
+ *
+ * NOTE: This is a best-effort heuristic. The NanoGPT discovery API does
+ * not currently surface a tokenizer field, so the result is informational
+ * and may be inaccurate for non-OpenAI models (e.g. Llama, Mistral,
+ * Claude). The actual token count in `estimateTokenCount` uses a
+ * character-count heuristic and does not depend on this value.
+ */
 function inferTokenizerFromModelIdentity(
   ...values: Array<string | undefined>
 ): NanoGptTokenizer {
@@ -76,12 +128,11 @@ function inferTokenizerFromModelIdentity(
     .join(" ")
     .toLowerCase();
 
-  if (
-    /(\bgpt-4\b|\bgpt-4-\b|\bgpt-3\.5\b|\bgpt-3\.5-\b|\bgpt-35-turbo\b|\btext-davinci\b|\bcode-davinci\b|\bcode-cushman\b|\bdavinci\b|\bcurie\b|\bbabbage\b|\bada\b)/.test(
-      normalized,
-    ) &&
-    !/\bgpt-4o\b/.test(normalized)
-  ) {
+  if (O200K_BASE_OVERRIDE_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return "o200k_base";
+  }
+
+  if (CL100K_BASE_MODEL_PATTERNS.some((pattern) => pattern.test(normalized))) {
     return "cl100k_base";
   }
 

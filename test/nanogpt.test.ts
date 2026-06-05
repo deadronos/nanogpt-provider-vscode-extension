@@ -419,6 +419,45 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     });
   });
 
+  test("maps gpt-3.5-turbo variants to cl100k tokenizer hints", () => {
+    const models = mapNanoGptModelsToVscode([
+      { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
+      { id: "gpt-3.5-turbo-16k", name: "GPT-3.5 Turbo 16k" },
+    ]);
+
+    expect(models[0]?.capabilities.tokenizer).toBe("cl100k_base");
+    expect(models[1]?.capabilities.tokenizer).toBe("cl100k_base");
+  });
+
+  test("maps gpt-4o, gpt-4.1, gpt-5, and o-series to o200k tokenizer hints", () => {
+    const models = mapNanoGptModelsToVscode([
+      { id: "gpt-4o", name: "GPT-4o" },
+      { id: "gpt-4o-mini", name: "GPT-4o Mini" },
+      { id: "gpt-4.1", name: "GPT-4.1" },
+      { id: "gpt-5", name: "GPT-5" },
+      { id: "gpt-5-mini", name: "GPT-5 Mini" },
+      { id: "o1", name: "o1" },
+      { id: "o1-mini", name: "o1-mini" },
+      { id: "o3-mini", name: "o3-mini" },
+    ]);
+
+    for (const model of models) {
+      expect(model.capabilities.tokenizer).toBe("o200k_base");
+    }
+  });
+
+  test("defaults unknown third-party models to o200k tokenizer hints", () => {
+    const models = mapNanoGptModelsToVscode([
+      { id: "moonshotai/kimi-k2.5", name: "Kimi K2.5" },
+      { id: "meta-llama/llama-3.1-70b", name: "Llama 3.1 70B" },
+      { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet" },
+    ]);
+
+    for (const model of models) {
+      expect(model.capabilities.tokenizer).toBe("o200k_base");
+    }
+  });
+
   test("adds 1024 tokens per image in message content", () => {
     const count = estimateTokenCount({
       role: "user",

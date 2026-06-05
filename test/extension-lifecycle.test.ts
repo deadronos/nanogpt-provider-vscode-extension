@@ -37,8 +37,19 @@ const createSecrets = () => ({
   get: vi.fn(async () => undefined),
   store: vi.fn(async () => undefined),
 });
+const createGlobalState = () => {
+  const store = new Map<string, unknown>();
+  return {
+    get: vi.fn((key: string) => store.get(key)),
+    update: vi.fn(async (key: string, value: unknown) => {
+      store.set(key, value);
+    }),
+    keys: vi.fn(() => Array.from(store.keys())),
+  };
+};
 const createContext = () => ({
   secrets: createSecrets(),
+  globalState: createGlobalState(),
   subscriptions: [] as Array<{ dispose(): void }>,
 });
 const createToken = () => ({
@@ -193,6 +204,23 @@ describe("NanoGPT provider lifecycle", () => {
     expect(onModelsChanged).toHaveBeenCalledTimes(1);
   });
 
+  test("provider-only workspace setting changes do not invalidate the model cache", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    const onModelsChanged = vi.fn();
+    registeredProvider?.onDidChangeLanguageModelChatInformation?.(onModelsChanged);
+
+    configurationListener?.({
+      affectsConfiguration: (section: string) => section === "nanogpt.provider",
+    });
+
+    expect(onModelsChanged).not.toHaveBeenCalled();
+  });
+
   test("non-silent discovery routes missing-key onboarding directly to NanoGPT management", async () => {
     const { activate } = await import("../src/extension.js");
 
@@ -293,5 +321,164 @@ describe("NanoGPT provider lifecycle", () => {
     expect(secondModels).toEqual([]);
     expect(showWarningMessage).not.toHaveBeenCalled();
     expect(executeCommand).not.toHaveBeenCalled();
+  });
+
+  test("hydrates model cache from globalState on construction and serves it without re-fetching", async () => {
+    const { NanoGptLanguageModelProvider } = await import("../src/extension.js");
+    const { sha256Hex } = await import("../src/utils.js");
+
+    const apiKey = "hydrated-key";
+    const cacheKey = `subscription:${sha256Hex(apiKey)}`;
+    const cachedModel = {
+      id: "hydrated-model",
+      name: "Hydrated Model",
+      family: "hydrated",
+      version: "1",
+      maxInputTokens: 1000,
+      maxOutputTokens: 100,
+      detail: "NanoGPT",
+      tooltip: "hydrated tooltip",
+      capabilities: {
+        imageInput: false,
+        toolCalling: false,
+        family: "hydrated",
+        tokenizer: "o200k_base",
+      },
+      reasoning: false,
+    };
+
+    const context = createContext();
+    await context.globalState.update("nanogpt.modelCache", {
+      version: 1,
+      entries: { [cacheKey]: [cachedModel] },
+    });
+
+    const discoverModels = vi.fn();
+    const provider = new NanoGptLanguageModelProvider(
+      context as any,
+      { discoverModels } as any,
+      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    );
+
+    const models = await (provider as any).provideLanguageModelChatInformation(
+      { silent: false, configuration: { apiKey, routingMode: "subscription" } },
+      createToken() as any,
+    );
+
+    expect(discoverModels).not.toHaveBeenCalled();
+    expect(models[0]?.id).toBe("hydrated-model");
+  });
+
+  test("persists discovered models to globalState after a successful discovery", async () => {
+    const { NanoGptLanguageModelProvider } = await import("../src/extension.js");
+    const { sha256Hex } = await import("../src/utils.js");
+
+    const apiKey = "persist-key";
+    const expectedCacheKey = `subscription:${sha256Hex(apiKey)}`;
+    const discoveredModel = {
+      id: "discovered-model",
+      name: "Discovered Model",
+      family: "discovered",
+      version: "1",
+      maxInputTokens: 200000,
+      maxOutputTokens: 32768,
+      detail: "NanoGPT",
+      tooltip: "discovered tooltip",
+      capabilities: {
+        imageInput: false,
+        toolCalling: false,
+        family: "discovered",
+        tokenizer: "o200k_base",
+      },
+      reasoning: false,
+    };
+
+    const context = createContext();
+    const discoverModels = vi.fn(async () => [discoveredModel]);
+    const provider = new NanoGptLanguageModelProvider(
+      context as any,
+      { discoverModels } as any,
+      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    );
+
+    await (provider as any).provideLanguageModelChatInformation(
+      { silent: false, configuration: { apiKey, routingMode: "subscription" } },
+      createToken() as any,
+    );
+
+    expect(context.globalState.update).toHaveBeenCalledWith(
+      "nanogpt.modelCache",
+      expect.objectContaining({
+        version: 1,
+        entries: expect.objectContaining({
+          [expectedCacheKey]: [discoveredModel],
+        }),
+      }),
+    );
+  });
+
+  test("clearModelCache also clears the persisted globalState copy", async () => {
+    const { NanoGptLanguageModelProvider } = await import("../src/extension.js");
+
+    const context = createContext();
+    const provider = new NanoGptLanguageModelProvider(
+      context as any,
+      { discoverModels: vi.fn() } as any,
+      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    );
+
+    provider.clearModelCache("test-reason");
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(context.globalState.update).toHaveBeenCalledWith("nanogpt.modelCache", undefined);
+  });
+
+  test("ignores persisted cache entries with a mismatched schema version", async () => {
+    const { NanoGptLanguageModelProvider } = await import("../src/extension.js");
+    const { sha256Hex } = await import("../src/utils.js");
+
+    const apiKey = "stale-key";
+    const cacheKey = `subscription:${sha256Hex(apiKey)}`;
+    const staleModel = {
+      id: "stale-model",
+      name: "Stale",
+      family: "stale",
+      version: "1",
+      maxInputTokens: 1000,
+      maxOutputTokens: 100,
+      detail: "NanoGPT",
+      tooltip: "stale",
+      capabilities: {
+        imageInput: false,
+        toolCalling: false,
+        family: "stale",
+        tokenizer: "o200k_base",
+      },
+      reasoning: false,
+    };
+
+    const context = createContext();
+    await context.globalState.update("nanogpt.modelCache", {
+      version: 999,
+      entries: { [cacheKey]: [staleModel] },
+    });
+
+    const discoverModels = vi.fn(async () => [
+      { ...staleModel, id: "fresh-model" },
+    ]);
+    const provider = new NanoGptLanguageModelProvider(
+      context as any,
+      { discoverModels } as any,
+      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    );
+
+    const models = await (provider as any).provideLanguageModelChatInformation(
+      { silent: false, configuration: { apiKey, routingMode: "subscription" } },
+      createToken() as any,
+    );
+
+    expect(discoverModels).toHaveBeenCalledTimes(1);
+    expect(models[0]?.id).toBe("fresh-model");
   });
 });
