@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.17
+
 - Persisted the discovery model cache to `context.globalState` under a versioned `nanogpt.modelCache` key so cold starts with a flaky network still surface a last-known-good model list. The provider hydrates the in-memory cache from `globalState` in the constructor and writes back after each successful discovery. `clearModelCache` also writes `undefined` to the same key so manual refreshes and configuration changes do not leave stale entries behind.
 - Added a fast-path cache lookup before the network call: a populated in-memory entry (whether populated by a prior successful discovery in the same session or hydrated from `globalState` on activation) short-circuits `discoverModels` and is returned immediately. Discovery failures still fall back to the same cache as before.
 - Improved the tokenizer heuristic in `mapNanoGptModelsToVscode`: added modern OpenAI families (`gpt-4o`, `gpt-4.1`, `gpt-4.5`, `gpt-5`, `gpt-oss`, the `o-series`) to an explicit `o200k_base` override so they are no longer misclassified as `cl100k_base`, and expanded the legacy `cl100k_base` pattern list with `text-embedding-ada-*` and `code-search-*`. Patterns are now organized as named constants for clarity, and the JSDoc explicitly notes the heuristic is informational for non-OpenAI models.
