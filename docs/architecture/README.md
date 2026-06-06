@@ -41,11 +41,17 @@ That separation is not incidental. It is a core design constraint of the reposit
 | `src/nanogpt-parser.ts` | SSE parser and collectors (`NanoGptSseParser`, `collectSseResponseParts`). |
 | `src/nanogpt.ts` | Barrel re-exports, `mapNanoGptModelsToVscode`, `buildModelConfigurationSchema`, `estimateTokenCount`. |
 | `test/client.test.ts` | Covers HTTP client behavior, error handling, stream parsing, reader release, and sanitized logging. |
-| `test/nanogpt.test.ts` | Covers model mapping, schema coupling, and token estimation. |
-| `test/nanogpt-message.test.ts` | Covers message conversion and tool serialization. |
-| `test/nanogpt-request.test.ts` | Covers request building edge cases. |
-| `test/nanogpt-parser.test.ts` | Covers SSE parser and tool-call deltas. |
+| `test/config.test.ts` | Covers configuration getters, API key precedence, model allowlist filtering, and reasoning/tool-calling validation. |
+| `test/extension.test.ts` | Covers provider behavior in isolation, including allowlist stubs and persisted cache hydration. |
+| `test/extension-compatibility.test.ts` | Covers runtime feature detection for the language model provider API and per-build fallback messages. |
+| `test/extension-lifecycle.test.ts` | Covers activation, command registration, and configuration-change listeners. |
+| `test/nanogpt.test.ts` | Covers model mapping, schema coupling, tokenizer heuristic, and token estimation. |
+| `test/nanogpt-message.test.ts` | Covers message conversion and tool serialization (including mixed text + tool-result + image messages). |
+| `test/nanogpt-request.test.ts` | Covers request body and header building edge cases. |
+| `test/nanogpt-parser.test.ts` | Covers SSE parser, tool-call accumulation, reasoning-field detection, and EOF tool-call flushing. |
+| `test/nanogpt-tool-bridge.test.ts` | Covers bridge prompt construction, bridge-response parsing (including JSON code fences and XML-like `<tool_calls>` payloads), and the JSON-only repair turn. |
 | `test/utils.test.ts` | Covers shared utility functions. |
+| `test/vscode-messaging.test.ts` | Covers VS Code message-part compatibility shims (`toCoreMessages`, `toToolMode`, `createThinkingPart`, `getPromptTsxText`). |
 
 ## Current Scope
 

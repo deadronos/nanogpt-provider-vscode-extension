@@ -72,7 +72,7 @@ Responsibilities:
 
 - Exports `DEFAULT_MODELS` fallback array.
 - Resolves all configuration from provider configuration, workspace settings, secret storage, and environment fallback.
-- Provides typed getters: `getRoutingMode`, `getProvider`, `getModelAllowlist`, `getReasoningEffort`, `getReasoningOutput`, `resolveApiKey`, `isVerboseLoggingEnabled`.
+- Provides typed getters: `getRoutingMode`, `getProvider`, `getModelAllowlist`, `getReasoningEffort`, `getReasoningOutput`, `getToolCallingStrategy`, `resolveApiKey`, `isVerboseLoggingEnabled`. The reasoning and tool-calling getters also accept an optional `modelOptions` parameter so per-request overrides win over provider configuration and workspace settings.
 
 #### `src/logging.ts`
 
@@ -141,7 +141,8 @@ Pure tool-calling bridge transforms — no I/O, no VS Code.
 Exports:
 
 - `buildToolCallingBridgeMessages()` — rewrites tool history into a strict JSON-only bridge contract.
-- `parseToolCallingBridgeResponse()` — normalizes bridge JSON back into final text or tool-call intents.
+- `buildToolCallingBridgeRepairMessages()` — builds a JSON-only repair follow-up turn when the bridge response was invalid, or when a `toolMode: "required"` bridge turn returned prose without a usable tool call.
+- `parseToolCallingBridgeResponse()` — normalizes bridge JSON (and JSON code-fenced or XML-like `<tool_calls>` payloads) back into final text or tool-call intents.
 
 #### `src/nanogpt-request.ts`
 
@@ -186,7 +187,7 @@ Cross-cutting helpers not specific to any layer:
 Important manifest decisions:
 
 - `type: module`
-- `engines.vscode: ^1.105.0`
+- `engines.vscode: ^1.120.0`
 - `extensionKind: ["ui"]`
 - `capabilities.untrustedWorkspaces.supported: false`
 - activation on `onStartupFinished`
@@ -203,7 +204,9 @@ The provider contribution schema and the programmatic schema returned by `buildM
 
 It owns:
 
-- `modelCache: Map<string, VscodeModelMetadata[]>`
+- `modelCache: Map<string, VscodeModelMetadata[]>` — keyed on `routingMode` + `sha256(apiKey)` (and a normalized allowlist segment when set), so different API keys or routing surfaces each get an independent cached list. Raw credentials never appear in keys.
+- A persisted mirror of the same cache in `context.globalState` under the versioned key `nanogpt.modelCache` (`version: 1`, `entries: Record<cacheKey, VscodeModelMetadata[]>`). The constructor rehydrates the in-memory map from `globalState`; successful discoveries write back; `clearModelCache` writes `undefined` to the same key. Mismatched versions or malformed entries are ignored defensively.
+- `onDidChangeLanguageModelChatInformation` — fires whenever the discovery cache is cleared (manual refresh, `nanogpt.manage` save/clear, or `nanogpt.apiKey` / `nanogpt.routingMode` / `nanogpt.models` configuration changes) so VS Code re-runs discovery instead of holding stale results.
 - `nextRequestNumber` for request ids like `chat-3` or `discovery-2`
 - references to:
   - `ExtensionContext`
@@ -348,8 +351,28 @@ Hard failures remain for:
 The automated tests intentionally split along the same architectural boundaries:
 
 - `test/client.test.ts`
-  verifies HTTP client behavior and sanitized logging.
+  covers HTTP client behavior, error handling, stream parsing, reader release, and sanitized logging.
+- `test/config.test.ts`
+  covers the configuration getters, API key precedence, model allowlist filtering, and reasoning/tool-calling validation.
+- `test/extension.test.ts`
+  covers provider behavior in isolation (model resolution, allowlist stubs, persisted cache hydration, and telemetry aggregation).
+- `test/extension-compatibility.test.ts`
+  covers runtime feature detection for the language model provider API and the per-build fallback messages.
+- `test/extension-lifecycle.test.ts`
+  covers activation, command registration, and configuration-change listeners.
+- `test/nanogpt-message.test.ts`
+  covers message conversion and tool serialization (including mixed text + tool-result + image messages).
+- `test/nanogpt-parser.test.ts`
+  covers SSE parser, tool-call accumulation, reasoning-field detection, and `flushPendingToolCalls()` EOF handling.
+- `test/nanogpt-request.test.ts`
+  covers request body and header building edge cases.
+- `test/nanogpt-tool-bridge.test.ts`
+  covers bridge prompt construction, bridge-response parsing (including JSON code fences and XML-like `<tool_calls>` payloads), and the JSON-only repair turn.
 - `test/nanogpt.test.ts`
-  verifies pure transforms, request shaping, schema coupling, and parsing helpers.
+  covers model mapping, schema coupling, tokenizer heuristic, and token estimation.
+- `test/utils.test.ts`
+  covers shared utility functions.
+- `test/vscode-messaging.test.ts`
+  covers VS Code message-part compatibility shims (`toCoreMessages`, `toToolMode`, `createThinkingPart`, `getPromptTsxText`).
 
 There are no VS Code extension-host integration tests in the automated suite today. Those checks live in `docs/extension-host-smoke-test.md`.
