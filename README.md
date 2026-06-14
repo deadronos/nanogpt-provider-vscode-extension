@@ -65,6 +65,10 @@ code --install-extension nanogpt-provider-vscode-extension-0.0.2.vsix --force
 
 ## Setup
 
+Now the extension provides a VS Code Walkthrough to guide you through the provider configuration flow from the Command Palette. You can also configure the provider manually through the Command Palette and settings.
+
+![Walkthrough](walkthrough.png)
+
 After installing the extension, VS Code automatically registers the NanoGPT provider. The recommended first-run path is:
 
 1. Open the Command Palette.
