@@ -4,7 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-## 0.0.18
+## 0.0.19
+
+- Tightened the API key resolution chain: `resolveApiKey` now consults only per-model provider configuration and VS Code secret storage by default. The legacy workspace-setting (`nanogpt.apiKey`) and environment-variable (`NANOGPT_API_KEY`) fallbacks are gated behind an explicit `{ allowInsecureSources: true }` opt-in to prevent accidental credential exposure through synced settings or child-process inheritance. The `nanogpt.apiKey` workspace setting is deprecated with migration guidance.
+- Added a 5-step `Walkthroughs` contribution (`NanoGPT for VS Code`) for first-run onboarding, covering API key setup, model picker, per-model settings, chat verification, and reset.
+- Broadened the `DEFAULT_MODELS` fallback catalogue from 1 model to 5 (`gpt-5.4-mini`, `gpt-5.4`, `claude-sonnet-4.5`, `gemini-2.5-pro`, `deepseek-r1`) so the model picker is not empty during unconfigured discovery. All entries use pessimistic capability stubs since real capabilities come from the NanoGPT discovery API.
+- Added a family dimension to the discovery cache key: `deriveFamilyTokensFromAllowlist()` strips size/quantisation suffixes (`-mini`, `-pro`, `-32k`, etc.) from allowlisted model ids so related models collapse to the same family token and different families get independent cache entries.
+- Added `prepareChatRequest()` in `src/nanogpt-request.ts` — an internal request-preparation hook that strips oversized base64 inline images (>10 MiB) and drops empty assistant turns before serialisation. Wired into both the native and bridge stream paths in `NanoGptClient`. Designed as the extension-local equivalent of the `prepareLanguageModelChat` hook that newer VS Code APIs may expose on `LanguageModelChatInformation` in the future.
 
 - Fixed fresh-install onboarding in newer VS Code Insiders builds: the NanoGPT provider no longer declares `apiKey` as a required language-model provider field, and unconfigured non-silent discovery now returns fallback models plus missing-key onboarding instead of an empty model list. This restores the `Add Models > NanoGPT` flow when no provider instance exists yet.
 - Changed silent discovery for the unconfigured NanoGPT provider to open the existing API-key entry flow instead of staying fully passive. This lets `Add Models > NanoGPT` prompt for a key on first run while keeping configured silent discovery non-interactive.
