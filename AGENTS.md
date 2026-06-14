@@ -26,7 +26,7 @@ Source files organized into three layers with focused modules:
 | `src/nanogpt-types.ts` | Core | API constants, type definitions, `resolveRole`. No VS Code API, no I/O. |
 | `src/nanogpt-message.ts` | Core | Message/part conversion, tool serialization. No VS Code API, no I/O. |
 | `src/nanogpt-tool-bridge.ts` | Core | Tool-calling bridge prompt builder, history rewrite, and bridge-response normalization. No VS Code API, no I/O. |
-| `src/nanogpt-request.ts` | Core | Request body/header builder. No VS Code API, no I/O. |
+| `src/nanogpt-request.ts` | Core | Request body/header builder, `prepareChatRequest()` normalisation hook. No VS Code API, no I/O. |
 | `src/nanogpt-parser.ts` | Core | SSE parser and collectors. No VS Code API, no I/O. |
 | `src/nanogpt.ts` | Core | Barrel re-exports, model mapping, schema builder, token estimation. No VS Code API, no I/O. |
 

@@ -12,6 +12,22 @@ import {
 export const SECRET_KEY = "nanogpt.apiKey";
 export const VERBOSE_LOGGING_SETTING = "verboseLogging";
 
+/**
+ * Default model catalogue surfaced to the VS Code model picker when the
+ * provider has no API key and no allowlist is configured. These entries
+ * are intentionally minimal capability stubs — they advertise the model
+ * identity, an approximate context window, and the standard `o200k_base`
+ * tokenizer, but they do **not** claim image input, tool calling, or
+ * reasoning support because the real capabilities come from the
+ * NanoGPT discovery API and cannot be confirmed offline.
+ *
+ * The catalogue is grouped by model family so the picker shows a
+ * representative spread (small fast model, mid-size reasoning model,
+ * long-context model) before the first successful discovery round.
+ * If NanoGPT later renames or removes any of these ids, the
+ * `mapNanoGptModelsToVscode` allowlist filter is the source of truth —
+ * the entries below are best-effort placeholders, not guarantees.
+ */
 export const DEFAULT_MODELS: VscodeModelMetadata[] = [
   {
     id: "gpt-5.4-mini",
@@ -20,15 +36,99 @@ export const DEFAULT_MODELS: VscodeModelMetadata[] = [
     version: "gpt-5.4-mini",
     maxInputTokens: 200000,
     maxOutputTokens: 32768,
-    detail: "NanoGPT",
+    detail: "NanoGPT (default catalogue)",
     tooltip: buildModelTooltip("gpt-5.4-mini", 200000, 32768),
     capabilities: {
-      imageInput: true,
+      imageInput: false,
       toolCalling: false,
       family: "gpt-5.4-mini",
       tokenizer: "o200k_base",
     },
-    reasoning: true,
+    reasoning: false,
+    internal: {
+      parallelToolCalls: false,
+    },
+    configurationSchema: buildModelConfigurationSchema(),
+  },
+  {
+    id: "gpt-5.4",
+    name: "GPT-5.4",
+    family: "gpt-5.4",
+    version: "gpt-5.4",
+    maxInputTokens: 200000,
+    maxOutputTokens: 32768,
+    detail: "NanoGPT (default catalogue)",
+    tooltip: buildModelTooltip("gpt-5.4", 200000, 32768),
+    capabilities: {
+      imageInput: false,
+      toolCalling: false,
+      family: "gpt-5.4",
+      tokenizer: "o200k_base",
+    },
+    reasoning: false,
+    internal: {
+      parallelToolCalls: false,
+    },
+    configurationSchema: buildModelConfigurationSchema(),
+  },
+  {
+    id: "claude-sonnet-4.5",
+    name: "Claude Sonnet 4.5",
+    family: "claude-sonnet",
+    version: "claude-sonnet-4.5",
+    maxInputTokens: 200000,
+    maxOutputTokens: 16384,
+    detail: "NanoGPT (default catalogue)",
+    tooltip: buildModelTooltip("claude-sonnet-4.5", 200000, 16384),
+    capabilities: {
+      imageInput: false,
+      toolCalling: false,
+      family: "claude-sonnet",
+      tokenizer: "o200k_base",
+    },
+    reasoning: false,
+    internal: {
+      parallelToolCalls: false,
+    },
+    configurationSchema: buildModelConfigurationSchema(),
+  },
+  {
+    id: "gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    family: "gemini-2.5",
+    version: "gemini-2.5-pro",
+    maxInputTokens: 1000000,
+    maxOutputTokens: 65536,
+    detail: "NanoGPT (default catalogue)",
+    tooltip: buildModelTooltip("gemini-2.5-pro", 1000000, 65536),
+    capabilities: {
+      imageInput: false,
+      toolCalling: false,
+      family: "gemini-2.5",
+      tokenizer: "o200k_base",
+    },
+    reasoning: false,
+    internal: {
+      parallelToolCalls: false,
+    },
+    configurationSchema: buildModelConfigurationSchema(),
+  },
+  {
+    id: "deepseek-r1",
+    name: "DeepSeek R1",
+    family: "deepseek-r1",
+    version: "deepseek-r1",
+    maxInputTokens: 128000,
+    maxOutputTokens: 16384,
+    detail: "NanoGPT (default catalogue)",
+    tooltip: buildModelTooltip("deepseek-r1", 128000, 16384),
+    capabilities: {
+      imageInput: false,
+      toolCalling: false,
+      family: "deepseek-r1",
+      tokenizer: "o200k_base",
+    },
+    reasoning: false,
     internal: {
       parallelToolCalls: false,
     },
@@ -165,20 +265,61 @@ export function getToolCallingStrategy(
 }
 
 /**
- * Resolves the NanoGPT API key from available sources, in order of priority:
- * 1. Per-model provider configuration (from Chat: Manage Language Models)
- * 2. VS Code secret storage (set via NanoGPT: Manage API Key command)
- * 3. VS Code settings (nanogpt.apiKey — avoid checking this into Git)
- * 4. Environment variable NANOGPT_API_KEY (use with caution in dev-only contexts)
+ * Options that control how `resolveApiKey` searches for credentials.
+ *
+ * `allowInsecureSources` is reserved for explicit opt-in contexts such as
+ * a developer enabling `untrustedWorkspaces.supported: true` in the future.
+ * When `false` (the default), only per-model provider configuration and
+ * VS Code secret storage are consulted. Falling back to workspace
+ * settings or environment variables is intentionally disabled because
+ * those sources can be synced to other machines, committed by accident,
+ * or leaked into child-process environments.
+ */
+export type ResolveApiKeyOptions = {
+  allowInsecureSources?: boolean;
+};
+
+/**
+ * Resolves the NanoGPT API key from safe sources, in order of priority:
+ *
+ * 1. Per-model provider configuration (from Chat: Manage Language Models).
+ * 2. VS Code secret storage (set via NanoGPT: Manage API Key command).
+ *
+ * The previous implementation also consulted `nanogpt.apiKey` from
+ * workspace settings and the `NANOGPT_API_KEY` environment variable.
+ * Those fallbacks were removed because workspace settings can be synced
+ * or accidentally committed, and process environment values are
+ * inherited by every subprocess the user opens from VS Code. To opt
+ * back into the legacy fallback chain, pass
+ * `{ allowInsecureSources: true }`.
  */
 export async function resolveApiKey(
   context: vscode.ExtensionContext,
   providerConfiguration?: ProviderConfiguration,
+  options?: ResolveApiKeyOptions,
 ): Promise<string | undefined> {
-  return (
-    (typeof providerConfiguration?.apiKey === "string" ? providerConfiguration.apiKey.trim() : "") ||
-    (await context.secrets.get(SECRET_KEY))?.trim() ||
-    getConfig().get<string>("apiKey", "").trim() ||
-    process.env.NANOGPT_API_KEY?.trim()
-  );
+  const fromConfiguration =
+    typeof providerConfiguration?.apiKey === "string"
+      ? providerConfiguration.apiKey.trim()
+      : "";
+
+  if (fromConfiguration) {
+    return fromConfiguration;
+  }
+
+  const fromSecrets = (await context.secrets.get(SECRET_KEY))?.trim();
+  if (fromSecrets) {
+    return fromSecrets;
+  }
+
+  if (!options?.allowInsecureSources) {
+    return undefined;
+  }
+
+  const fromWorkspaceSettings = getConfig().get<string>("apiKey", "").trim();
+  if (fromWorkspaceSettings) {
+    return fromWorkspaceSettings;
+  }
+
+  return process.env.NANOGPT_API_KEY?.trim() || undefined;
 }

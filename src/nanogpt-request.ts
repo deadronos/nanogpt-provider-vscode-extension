@@ -11,6 +11,74 @@ import {
 import { toNanoGptTools } from "./nanogpt-message.js";
 
 /**
+ * Maximum size (in bytes) for a base64-encoded inline image payload
+ * before `prepareChatRequest` strips it to avoid blowing up the
+ * NanoGPT request body or triggering upstream timeouts. The limit is
+ * deliberately generous — most inline images in Copilot Chat are small
+ * screenshots or thumbnails — and can be raised in the future.
+ */
+const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MiB
+
+/**
+ * Internal request-preparation hook that normalises the message array
+ * before it is serialised for NanoGPT. This is the extension-local
+ * equivalent of the `prepareLanguageModelChat` hook that newer VS Code
+ * APIs may surface on `LanguageModelChatInformation` in the future.
+ *
+ * Current normalisations:
+ * 1. Strips base64-encoded inline image parts that exceed
+ *    {@link MAX_INLINE_IMAGE_BYTES} so the request body does not
+ *    balloon past NanoGPT's upload limits.
+ * 2. Drops empty assistant turns that some VS Code versions inject
+ *    before tool-call sequences.
+ *
+ * When VS Code lands a formal `prepareLanguageModelChat` hook, this
+ * function should be wired into it so the same normalisations apply
+ * regardless of whether the hook is called by VS Code or by the
+ * extension itself.
+ */
+export function prepareChatRequest(messages: readonly NanoGptChatMessage[]): NanoGptChatMessage[] {
+  const result: NanoGptChatMessage[] = [];
+
+  for (const message of messages) {
+    // Drop empty assistant turns — some VS Code versions insert these
+    // before tool-call sequences and they confuse upstream models.
+    if (message.role === "assistant" && !message.content) {
+      continue;
+    }
+
+    if (!Array.isArray(message.content)) {
+      result.push(message);
+      continue;
+    }
+
+    const filteredParts = message.content.filter((part) => {
+      if (typeof part === "object" && part !== null && part.type === "image_url") {
+        const url = (part as { image_url?: { url?: string } }).image_url?.url;
+        if (typeof url === "string" && url.startsWith("data:")) {
+          // Estimate the decoded byte-length from the base64 payload.
+          const base64Start = url.indexOf(",");
+          if (base64Start !== -1) {
+            const base64Payload = url.slice(base64Start + 1);
+            const byteLength = Math.floor((base64Payload.length * 3) / 4);
+            if (byteLength > MAX_INLINE_IMAGE_BYTES) {
+              return false;
+            }
+          }
+        }
+      }
+      return true;
+    });
+
+    result.push(filteredParts.length === message.content.length
+      ? message
+      : { ...message, content: filteredParts });
+  }
+
+  return result;
+}
+
+/**
  * Builds the full HTTP request configuration for a NanoGPT
  * chat completion call.
  *

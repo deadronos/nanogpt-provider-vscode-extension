@@ -2,7 +2,7 @@
   "name": "nanogpt-provider-vscode-extension",
   "displayName": "NanoGPT Provider for VS Code",
   "description": "Bring NanoGPT models to VS Code and Copilot Chat as a language model provider.",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "repository": {
     "type": "git",
     "url": "https://github.com/deadronos/nanogpt-provider-vscode-extension"
@@ -138,6 +138,59 @@
       {
         "command": "nanogpt.resetConfiguration",
         "title": "NanoGPT: Reset Saved Configuration"
+      },
+      {
+        "command": "nanogpt.openWalkthrough",
+        "title": "NanoGPT: Open Getting Started Walkthrough"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "nanogpt.getStarted",
+        "title": "NanoGPT for VS Code",
+        "description": "Set up the NanoGPT language model provider and bring NanoGPT models into the Copilot Chat picker.",
+        "steps": [
+          {
+            "id": "nanogpt.getStarted.apiKey",
+            "title": "Save your NanoGPT API key",
+            "description": "Store the key in VS Code's secret storage so it never gets synced or committed with your workspace settings.\n[Open Manage API Key](command:nanogpt.manage)",
+            "media": {
+              "markdown": "walkthrough/nanogpt-get-started.md#1-save-your-nanogpt-api-key"
+            }
+          },
+          {
+            "id": "nanogpt.getStarted.modelPicker",
+            "title": "Pick NanoGPT models in Copilot Chat",
+            "description": "Open the Copilot Chat model picker to add NanoGPT to the list of available vendors. If no models appear yet, the picker falls back to a small default catalogue so you can send a test message while discovery runs.\n[Open Model Picker](command:workbench.action.chat.manageModels)",
+            "media": {
+              "markdown": "walkthrough/nanogpt-get-started.md#2-pick-nanogpt-models-in-copilot-chat"
+            }
+          },
+          {
+            "id": "nanogpt.getStarted.perModelSettings",
+            "title": "Tune NanoGPT per-model settings",
+            "description": "Each NanoGPT model exposes a per-model configuration panel with routing surface, reasoning effort, reasoning output, and tool-calling strategy. Click the gear icon next to a NanoGPT model in the picker to edit these fields.",
+            "media": {
+              "markdown": "walkthrough/nanogpt-get-started.md#3-tune-nanogpt-per-model-settings"
+            }
+          },
+          {
+            "id": "nanogpt.getStarted.verifyChat",
+            "title": "Verify a chat round-trip",
+            "description": "Send a short message through Copilot Chat with a NanoGPT model and watch the Output panel for a structured log line. Enable verbose logging in workspace settings if you need debug-level detail.\n[Run Refresh Models](command:nanogpt.refreshModels)",
+            "media": {
+              "markdown": "walkthrough/nanogpt-get-started.md#4-verify-a-chat-round-trip"
+            }
+          },
+          {
+            "id": "nanogpt.getStarted.reset",
+            "title": "Reset NanoGPT (if you get stuck)",
+            "description": "Wipe the saved API key, all `nanogpt.*` settings at every scope, and the cached model list. After the reset completes, VS Code offers a follow-up menu to re-enter the API key or jump to the model picker.\n[Run Reset](command:nanogpt.resetConfiguration)",
+            "media": {
+              "markdown": "walkthrough/nanogpt-get-started.md#5-reset-nanogpt-if-you-get-stuck"
+            }
+          }
+        ]
       }
     ],
     "configuration": {
@@ -147,7 +200,7 @@
           "type": "string",
           "default": "",
           "secret": true,
-          "markdownDescription": "NanoGPT API key. Prefer the `NanoGPT: Manage API Key` command because settings can be synced or committed by accident."
+          "markdownDescription": "DEPRECATED — Prefer the `NanoGPT: Manage API Key` command because settings can be synced or committed by accident. This setting is no longer consulted by default; it is only honored when the extension is explicitly opted into insecure credential resolution."
         },
         "nanogpt.routingMode": {
           "type": "string",
@@ -236,6 +289,7 @@
   },
   "allowScripts": {
     "@vscode/vsce-sign@2.0.9": true,
-    "keytar@7.9.0": true
+    "keytar@7.9.0": true,
+    "fsevents@2.3.3": true
   }
 }

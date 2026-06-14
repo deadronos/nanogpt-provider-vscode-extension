@@ -71,11 +71,11 @@ describe("VS Code messaging compatibility", () => {
   test("toCoreMessages preserves prompt TSX, tool calls, and tool results when optional APIs exist", async () => {
     const { module, vscode } = await loadVscodeMessagingModule({ includePromptTsx: true });
 
-    const PromptTsxPart = (vscode as any).LanguageModelPromptTsxPart;
-    const TextPart = (vscode as any).LanguageModelTextPart;
-    const DataPart = (vscode as any).LanguageModelDataPart;
-    const ToolCallPart = (vscode as any).LanguageModelToolCallPart;
-    const ToolResultPart = (vscode as any).LanguageModelToolResultPart;
+    const PromptTsxPart = (vscode as typeof vscode & { LanguageModelPromptTsxPart?: new (...args: never[]) => unknown }).LanguageModelPromptTsxPart;
+    const TextPart = (vscode as typeof vscode & { LanguageModelTextPart?: new (...args: never[]) => unknown }).LanguageModelTextPart;
+    const DataPart = (vscode as typeof vscode & { LanguageModelDataPart?: new (...args: never[]) => unknown }).LanguageModelDataPart;
+    const ToolCallPart = (vscode as typeof vscode & { LanguageModelToolCallPart?: new (...args: never[]) => unknown }).LanguageModelToolCallPart;
+    const ToolResultPart = (vscode as typeof vscode & { LanguageModelToolResultPart?: new (...args: never[]) => unknown }).LanguageModelToolResultPart;
 
     const messages = [
       {
@@ -90,7 +90,7 @@ describe("VS Code messaging compatibility", () => {
       },
     ];
 
-    expect(module.toCoreMessages(messages as any)).toEqual([
+    expect(module.toCoreMessages(messages as unknown as Parameters<typeof module.toCoreMessages>[0])).toEqual([
       {
         role: "user",
         content: [
@@ -115,15 +115,15 @@ describe("VS Code messaging compatibility", () => {
 
     const part = module.createThinkingPart("reasoning");
 
-    expect(part).toBeInstanceOf((vscode as any).LanguageModelThinkingPart);
-    expect((part as any).value).toBe("reasoning");
+    expect(part).toBeInstanceOf((vscode as typeof vscode & { LanguageModelThinkingPart?: new (...args: never[]) => unknown }).LanguageModelThinkingPart as unknown as new (...args: never[]) => unknown);
+    expect((part as { value: string }).value).toBe("reasoning");
   });
 
   test("toToolMode maps only required mode to the NanoGPT required tool mode", async () => {
     const { module, vscode } = await loadVscodeMessagingModule();
 
-    expect(module.toToolMode((vscode as any).LanguageModelChatToolMode.Required)).toBe("required");
-    expect(module.toToolMode((vscode as any).LanguageModelChatToolMode.Auto)).toBeUndefined();
+    expect(module.toToolMode((vscode as typeof vscode & { LanguageModelChatToolMode?: { Required?: unknown; Auto?: unknown } }).LanguageModelChatToolMode?.Required)).toBe("required");
+    expect(module.toToolMode((vscode as typeof vscode & { LanguageModelChatToolMode?: { Required?: unknown; Auto?: unknown } }).LanguageModelChatToolMode?.Auto)).toBeUndefined();
     expect(module.toToolMode(undefined)).toBeUndefined();
   });
 });

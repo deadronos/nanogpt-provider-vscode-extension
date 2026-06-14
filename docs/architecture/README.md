@@ -60,7 +60,7 @@ Implemented today:
 - VS Code Language Model Chat Provider registration under vendor `nanogpt`.
 - Provider manifest integration through `languageModelChatProviders.managementCommand`, and missing-key onboarding that routes directly to the provider's own management command.
 - Provider-scoped and workspace-scoped configuration for routing, provider, reasoning, tool-calling strategy, and optional model allowlists.
-- API key resolution from provider config, secret storage, settings, and environment fallback.
+- API key resolution from provider config and secret storage by default; legacy settings/env fallbacks are opt-in only via `{ allowInsecureSources: true }`.
 - NanoGPT model discovery for `subscription` and `paygo` routing modes.
 - Silent model discovery returns no models and shows no UI when an API key is unavailable, matching VS Code's silent-resolution contract for BYOK providers.
 - Streaming chat completions with text, reasoning, and tool call support, including `native`, `auto`, and `bridge` tool-calling strategies. `native` is the default again; `auto` and `bridge` are explicit opt-in modes.

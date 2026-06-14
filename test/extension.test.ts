@@ -51,15 +51,15 @@ describe("NanoGPT VS Code provider", () => {
     executeCommand.mockReset();
 
     const provider = new NanoGptLanguageModelProvider(
-      { secrets: { get: async () => undefined } } as any,
-      { discoverModels: vi.fn() } as any,
+      { secrets: { get: async () => undefined } } as unknown as Parameters<typeof NanoGptLanguageModelProvider>[0],
+      { discoverModels: vi.fn() } as unknown as Parameters<typeof NanoGptLanguageModelProvider>[1],
       {
         trace: vi.fn(),
         debug: vi.fn(),
         info: vi.fn(),
         warn: vi.fn(),
         error: vi.fn(),
-      } as any,
+      } as unknown as Parameters<typeof NanoGptLanguageModelProvider>[2],
     );
 
     const result = await provider.provideLanguageModelChatInformation(
@@ -67,7 +67,7 @@ describe("NanoGPT VS Code provider", () => {
       {
         isCancellationRequested: false,
         onCancellationRequested: () => ({ dispose: () => {} }),
-      } as any,
+      } as Parameters<typeof provider.provideLanguageModelChatInformation>[1],
     );
 
     expect(result).toEqual(DEFAULT_MODELS);
@@ -109,25 +109,25 @@ describe("NanoGPT VS Code provider", () => {
     };
 
     const provider = new NanoGptLanguageModelProvider(
-      { secrets: { get: async () => "test-key" } } as any,
-      fakeClient as any,
-      logger as any,
+      { secrets: { get: async () => "test-key" } } as unknown as Parameters<typeof NanoGptLanguageModelProvider>[0],
+      fakeClient as unknown as Parameters<typeof NanoGptLanguageModelProvider>[1],
+      logger as unknown as Parameters<typeof NanoGptLanguageModelProvider>[2],
     );
 
     await provider.provideLanguageModelChatResponse(
-      { id: "gpt-5.4-mini" } as any,
+      { id: "gpt-5.4-mini" } as Parameters<typeof provider.provideLanguageModelChatResponse>[0],
       [],
       { configuration: { apiKey: "test-key" } },
       { report: (part: unknown) => progressReports.push(part) },
       {
         isCancellationRequested: false,
         onCancellationRequested: () => ({ dispose: () => {} }),
-      } as any,
+      } as Parameters<typeof provider.provideLanguageModelChatResponse>[4],
     );
 
     expect(progressReports).toHaveLength(1);
     expect(progressReports[0]).toBeInstanceOf(LanguageModelTextPart);
-    expect((progressReports[0] as any).value).toBe("Required tool turn failed closed.");
+    expect((progressReports[0] as { value?: string }).value).toBe("Required tool turn failed closed.");
 
     expect(logger.infoMessages.some((message) =>
       message.includes("textDeltas=1") &&

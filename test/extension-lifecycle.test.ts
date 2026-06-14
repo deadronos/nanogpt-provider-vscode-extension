@@ -182,7 +182,7 @@ describe("NanoGPT provider lifecycle", () => {
 
     const context = createContext();
 
-    activate(context as any);
+    activate(context as unknown as Parameters<typeof activate>[0]);
 
     expect(registerLanguageModelChatProvider).toHaveBeenCalledTimes(1);
     expect(registeredProvider?.onDidChangeLanguageModelChatInformation).toBeTypeOf("function");
@@ -217,7 +217,7 @@ describe("NanoGPT provider lifecycle", () => {
       },
     });
 
-    activate(context as any);
+    activate(context as unknown as Parameters<typeof activate>[0]);
 
     const onModelsChanged = vi.fn();
     registeredProvider?.onDidChangeLanguageModelChatInformation?.(onModelsChanged);
@@ -277,7 +277,7 @@ describe("NanoGPT provider lifecycle", () => {
 
     const context = createContext();
 
-    activate(context as any);
+    activate(context as unknown as Parameters<typeof activate>[0]);
 
     showWarningMessage.mockResolvedValueOnce("Reset NanoGPT");
     showInformationMessage.mockResolvedValueOnce("Add Models");
@@ -297,7 +297,7 @@ describe("NanoGPT provider lifecycle", () => {
 
     const context = createContext();
 
-    activate(context as any);
+    activate(context as unknown as Parameters<typeof activate>[0]);
 
     const onModelsChanged = vi.fn();
     registeredProvider?.onDidChangeLanguageModelChatInformation?.(onModelsChanged);
@@ -314,7 +314,7 @@ describe("NanoGPT provider lifecycle", () => {
 
     const context = createContext();
 
-    activate(context as any);
+    activate(context as unknown as Parameters<typeof activate>[0]);
 
     const onModelsChanged = vi.fn();
     registeredProvider?.onDidChangeLanguageModelChatInformation?.(onModelsChanged);
@@ -333,14 +333,19 @@ describe("NanoGPT provider lifecycle", () => {
 
     const context = createContext();
 
-    activate(context as any);
+    activate(context as unknown as Parameters<typeof activate>[0]);
 
-    const models = await (registeredProvider as any).provideLanguageModelChatInformation(
+    const models = await (registeredProvider as {
+      provideLanguageModelChatInformation: (
+        options: { silent: boolean; configuration?: { routingMode?: string } },
+        token: ReturnType<typeof createToken>,
+      ) => Promise<unknown[]>;
+    }).provideLanguageModelChatInformation(
       { silent: false, configuration: { routingMode: "subscription" } },
-      { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) },
+      createToken(),
     );
 
-    expect(models).toHaveLength(1);
+    expect(models).toHaveLength(5);
     expect(showWarningMessage).toHaveBeenCalledWith(
       expect.stringContaining("NanoGPT API key"),
       "Manage API Key",
@@ -355,9 +360,14 @@ describe("NanoGPT provider lifecycle", () => {
 
     const context = createContext();
 
-    activate(context as any);
+    activate(context as unknown as Parameters<typeof activate>[0]);
 
-    const models = await (registeredProvider as any).provideLanguageModelChatInformation(
+    const models = await (registeredProvider as {
+      provideLanguageModelChatInformation: (
+        options: { silent: boolean; configuration?: { routingMode?: string; models?: string[] } },
+        token: ReturnType<typeof createToken>,
+      ) => Promise<unknown[]>;
+    }).provideLanguageModelChatInformation(
       {
         silent: false,
         configuration: { routingMode: "subscription", models: ["gpt-5.4-mini", "moonshotai/kimi-k2.5"] },
@@ -381,17 +391,27 @@ describe("NanoGPT provider lifecycle", () => {
 
     const context = createContext();
 
-    activate(context as any);
+    activate(context as unknown as Parameters<typeof activate>[0]);
 
     const token = createToken();
 
-    const firstModels = await (registeredProvider as any).provideLanguageModelChatInformation(
+    const firstModels = await (registeredProvider as {
+      provideLanguageModelChatInformation: (
+        options: { silent: boolean; configuration?: { routingMode?: string } },
+        token: ReturnType<typeof createToken>,
+      ) => Promise<unknown[]>;
+    }).provideLanguageModelChatInformation(
       { silent: true, configuration: { routingMode: "subscription" } },
-      token as any,
+      token,
     );
-    const secondModels = await (registeredProvider as any).provideLanguageModelChatInformation(
+    const secondModels = await (registeredProvider as {
+      provideLanguageModelChatInformation: (
+        options: { silent: boolean; configuration?: { routingMode?: string } },
+        token: ReturnType<typeof createToken>,
+      ) => Promise<unknown[]>;
+    }).provideLanguageModelChatInformation(
       { silent: true, configuration: { routingMode: "subscription" } },
-      token as any,
+      token,
     );
 
     expect(firstModels).toEqual([]);
@@ -405,16 +425,21 @@ describe("NanoGPT provider lifecycle", () => {
 
     const context = createContext();
 
-    activate(context as any);
+    activate(context as unknown as Parameters<typeof activate>[0]);
 
     showInputBox.mockResolvedValueOnce(undefined);
 
-    const models = await (registeredProvider as any).provideLanguageModelChatInformation(
+    const models = await (registeredProvider as {
+      provideLanguageModelChatInformation: (
+        options: { silent: boolean; configuration?: { routingMode?: string } },
+        token: ReturnType<typeof createToken>,
+      ) => Promise<unknown[]>;
+    }).provideLanguageModelChatInformation(
       { silent: true },
-      createToken() as any,
+      createToken(),
     );
 
-    expect(models).toHaveLength(1);
+    expect(models).toHaveLength(5);
     expect(executeCommand).toHaveBeenCalledWith("nanogpt.manage");
     expect(showInputBox).toHaveBeenCalledTimes(1);
     expect(showWarningMessage).not.toHaveBeenCalled();
@@ -425,21 +450,31 @@ describe("NanoGPT provider lifecycle", () => {
 
     const context = createContext();
 
-    activate(context as any);
+    activate(context as unknown as Parameters<typeof activate>[0]);
 
-    const firstModels = await (registeredProvider as any).provideLanguageModelChatInformation(
+    const firstModels = await (registeredProvider as {
+      provideLanguageModelChatInformation: (
+        options: { silent: boolean; configuration?: { routingMode?: string; models?: string[] } },
+        token: ReturnType<typeof createToken>,
+      ) => Promise<unknown[]>;
+    }).provideLanguageModelChatInformation(
       {
         silent: true,
         configuration: { routingMode: "subscription", models: ["gpt-5.4-mini"] },
       },
-      createToken() as any,
+      createToken(),
     );
-    const secondModels = await (registeredProvider as any).provideLanguageModelChatInformation(
+    const secondModels = await (registeredProvider as {
+      provideLanguageModelChatInformation: (
+        options: { silent: boolean; configuration?: { routingMode?: string; models?: string[] } },
+        token: ReturnType<typeof createToken>,
+      ) => Promise<unknown[]>;
+    }).provideLanguageModelChatInformation(
       {
         silent: true,
         configuration: { routingMode: "subscription", models: ["gpt-5.4-mini"] },
       },
-      createToken() as any,
+      createToken(),
     );
 
     expect(firstModels).toEqual([]);
@@ -453,7 +488,7 @@ describe("NanoGPT provider lifecycle", () => {
     const { sha256Hex } = await import("../src/utils.js");
 
     const apiKey = "hydrated-key";
-    const cacheKey = `subscription:${sha256Hex(apiKey)}`;
+    const cacheKey = `subscription:${sha256Hex(apiKey)}:*:*`;
     const cachedModel = {
       id: "hydrated-model",
       name: "Hydrated Model",
@@ -480,14 +515,19 @@ describe("NanoGPT provider lifecycle", () => {
 
     const discoverModels = vi.fn();
     const provider = new NanoGptLanguageModelProvider(
-      context as any,
-      { discoverModels } as any,
-      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      context as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[0],
+      { discoverModels } as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[1],
+      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[2],
     );
 
-    const models = await (provider as any).provideLanguageModelChatInformation(
+    const models = await (provider as {
+      provideLanguageModelChatInformation: (
+        options: { silent: boolean; configuration?: { apiKey?: string; routingMode?: string } },
+        token: ReturnType<typeof createToken>,
+      ) => Promise<unknown[]>;
+    }).provideLanguageModelChatInformation(
       { silent: false, configuration: { apiKey, routingMode: "subscription" } },
-      createToken() as any,
+      createToken(),
     );
 
     expect(discoverModels).not.toHaveBeenCalled();
@@ -499,7 +539,7 @@ describe("NanoGPT provider lifecycle", () => {
     const { sha256Hex } = await import("../src/utils.js");
 
     const apiKey = "persist-key";
-    const expectedCacheKey = `subscription:${sha256Hex(apiKey)}`;
+    const expectedCacheKey = `subscription:${sha256Hex(apiKey)}:*:*`;
     const discoveredModel = {
       id: "discovered-model",
       name: "Discovered Model",
@@ -521,14 +561,19 @@ describe("NanoGPT provider lifecycle", () => {
     const context = createContext();
     const discoverModels = vi.fn(async () => [discoveredModel]);
     const provider = new NanoGptLanguageModelProvider(
-      context as any,
-      { discoverModels } as any,
-      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      context as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[0],
+      { discoverModels } as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[1],
+      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[2],
     );
 
-    await (provider as any).provideLanguageModelChatInformation(
+    await (provider as {
+      provideLanguageModelChatInformation: (
+        options: { silent: boolean; configuration?: { apiKey?: string; routingMode?: string } },
+        token: ReturnType<typeof createToken>,
+      ) => Promise<unknown[]>;
+    }).provideLanguageModelChatInformation(
       { silent: false, configuration: { apiKey, routingMode: "subscription" } },
-      createToken() as any,
+      createToken(),
     );
 
     expect(context.globalState.update).toHaveBeenCalledWith(
@@ -547,9 +592,9 @@ describe("NanoGPT provider lifecycle", () => {
 
     const context = createContext();
     const provider = new NanoGptLanguageModelProvider(
-      context as any,
-      { discoverModels: vi.fn() } as any,
-      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      context as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[0],
+      { discoverModels: vi.fn() } as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[1],
+      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[2],
     );
 
     provider.clearModelCache("test-reason");
@@ -564,7 +609,7 @@ describe("NanoGPT provider lifecycle", () => {
     const { sha256Hex } = await import("../src/utils.js");
 
     const apiKey = "stale-key";
-    const cacheKey = `subscription:${sha256Hex(apiKey)}`;
+    const cacheKey = `subscription:${sha256Hex(apiKey)}:*:*`;
     const staleModel = {
       id: "stale-model",
       name: "Stale",
@@ -593,14 +638,19 @@ describe("NanoGPT provider lifecycle", () => {
       { ...staleModel, id: "fresh-model" },
     ]);
     const provider = new NanoGptLanguageModelProvider(
-      context as any,
-      { discoverModels } as any,
-      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      context as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[0],
+      { discoverModels } as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[1],
+      { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as unknown as ConstructorParameters<typeof NanoGptLanguageModelProvider>[2],
     );
 
-    const models = await (provider as any).provideLanguageModelChatInformation(
+    const models = await (provider as {
+      provideLanguageModelChatInformation: (
+        options: { silent: boolean; configuration?: { apiKey?: string; routingMode?: string } },
+        token: ReturnType<typeof createToken>,
+      ) => Promise<unknown[]>;
+    }).provideLanguageModelChatInformation(
       { silent: false, configuration: { apiKey, routingMode: "subscription" } },
-      createToken() as any,
+      createToken(),
     );
 
     expect(discoverModels).toHaveBeenCalledTimes(1);

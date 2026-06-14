@@ -47,11 +47,11 @@ describe("NanoGPT VS Code compatibility", () => {
   test("activation warns when the language model chat provider API is unavailable", async () => {
     const { activate } = await import("../src/extension.js");
 
-    activate({ subscriptions: [] } as any);
+    activate({ subscriptions: [] } as unknown as Parameters<typeof activate>[0]);
 
     expect(showWarningMessage).toHaveBeenCalledWith(
       "NanoGPT requires a VS Code build with Language Model Chat Provider support.",
     );
-    expect(registerCommand).toHaveBeenCalledTimes(3);
+    expect(registerCommand).toHaveBeenCalledTimes(4);
   });
 });
