@@ -62,7 +62,7 @@ This file is the only place that should depend on VS Code runtime APIs for provi
 Responsibilities:
 
 - Registers the language model chat provider under vendor id `nanogpt`.
-- Registers commands: `nanogpt.manage`, `nanogpt.refreshModels`.
+- Registers commands: `nanogpt.manage`, `nanogpt.refreshModels`, `nanogpt.resetConfiguration`, and `nanogpt.openWalkthrough`.
 - Owns the `NanoGptLanguageModelProvider` class with model cache, discovery, chat streaming, token counting, and the provider-level model-change event that tells VS Code when discovery should run again.
 - Bridges VS Code `CancellationToken` to `AbortSignal` via `createAbortSignal`.
 
@@ -71,7 +71,7 @@ Responsibilities:
 Responsibilities:
 
 - Exports `DEFAULT_MODELS` fallback array (5 models spanning gpt-5.4, claude-sonnet, gemini-2.5, and deepseek families).
-- Resolves all configuration from provider configuration, workspace settings, secret storage, and environment fallback.
+- Resolves API keys from provider configuration and VS Code secret storage by default. Legacy workspace-setting and environment-variable fallbacks are intentionally gated behind an explicit `{ allowInsecureSources: true }` opt-in. Other settings still come from provider configuration and workspace settings.
 - Provides typed getters: `getRoutingMode`, `getProvider`, `getModelAllowlist`, `getReasoningEffort`, `getReasoningOutput`, `getToolCallingStrategy`, `resolveApiKey`, `isVerboseLoggingEnabled`. The reasoning and tool-calling getters also accept an optional `modelOptions` parameter so per-request overrides win over provider configuration and workspace settings.
 - `resolveApiKey` uses a two-tier safe chain by default: per-model provider configuration → VS Code secret storage. The legacy workspace-setting and env-var fallbacks are available only when explicitly opted in via `{ allowInsecureSources: true }`.
 

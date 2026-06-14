@@ -102,8 +102,11 @@ Current precedence:
 
 1. provider config
 2. secret storage
-3. settings
-4. environment variable
+
+Legacy opt-in fallback path (only when `{ allowInsecureSources: true }` is explicitly enabled):
+
+- workspace settings (`nanogpt.apiKey`)
+- environment variable (`NANOGPT_API_KEY`)
 
 Preferred user path:
 
