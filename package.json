@@ -2,7 +2,7 @@
   "name": "nanogpt-provider-vscode-extension",
   "displayName": "NanoGPT Provider for VS Code",
   "description": "Bring NanoGPT models to VS Code and Copilot Chat as a language model provider.",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "repository": {
     "type": "git",
     "url": "https://github.com/deadronos/nanogpt-provider-vscode-extension"
@@ -44,9 +44,6 @@
         "managementCommand": "nanogpt.manage",
         "configuration": {
           "type": "object",
-          "required": [
-            "apiKey"
-          ],
           "properties": {
             "apiKey": {
               "type": "string",

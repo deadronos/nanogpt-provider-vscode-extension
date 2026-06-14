@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.18
+
+- Fixed fresh-install onboarding in newer VS Code Insiders builds: the NanoGPT provider no longer declares `apiKey` as a required language-model provider field, and unconfigured non-silent discovery now returns fallback models plus missing-key onboarding instead of an empty model list. This restores the `Add Models > NanoGPT` flow when no provider instance exists yet.
+
 ## 0.0.17
 
 - Persisted the discovery model cache to `context.globalState` under a versioned `nanogpt.modelCache` key so cold starts with a flaky network still surface a last-known-good model list. The provider hydrates the in-memory cache from `globalState` in the constructor and writes back after each successful discovery. `clearModelCache` also writes `undefined` to the same key so manual refreshes and configuration changes do not leave stale entries behind.

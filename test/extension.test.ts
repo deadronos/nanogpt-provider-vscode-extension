@@ -22,17 +22,62 @@ const EventEmitter = class<T> {
   dispose(): void {}
 };
 
+const showWarningMessage = vi.fn();
+const executeCommand = vi.fn();
+
 vi.mock("vscode", () => ({
   EventEmitter,
   LanguageModelTextPart,
   LanguageModelError: class extends Error {},
   LanguageModelChatToolMode,
+  commands: {
+    executeCommand,
+  },
+  window: {
+    showWarningMessage,
+  },
   workspace: {
     getConfiguration: () => ({ get: () => "" }),
   },
 }));
 
 describe("NanoGPT VS Code provider", () => {
+  test("returns fallback models for non-silent unconfigured discovery on fresh installs", async () => {
+    const { NanoGptLanguageModelProvider } = await import("../src/extension.js");
+    const { DEFAULT_MODELS } = await import("../src/config.js");
+
+    showWarningMessage.mockReset();
+    showWarningMessage.mockResolvedValue(undefined);
+    executeCommand.mockReset();
+
+    const provider = new NanoGptLanguageModelProvider(
+      { secrets: { get: async () => undefined } } as any,
+      { discoverModels: vi.fn() } as any,
+      {
+        trace: vi.fn(),
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      } as any,
+    );
+
+    const result = await provider.provideLanguageModelChatInformation(
+      { silent: false },
+      {
+        isCancellationRequested: false,
+        onCancellationRequested: () => ({ dispose: () => {} }),
+      } as any,
+    );
+
+    expect(result).toEqual(DEFAULT_MODELS);
+    expect(showWarningMessage).toHaveBeenCalledWith(
+      "NanoGPT API key is required to discover models. You can manage provider settings or enter a key directly.",
+      "Manage API Key",
+    );
+    expect(executeCommand).not.toHaveBeenCalled();
+  });
+
   test("emits a warning text part and logs bridge telemetry when requiredToolWarning is returned", async () => {
     const { NanoGptLanguageModelProvider } = await import("../src/extension.js");
 
