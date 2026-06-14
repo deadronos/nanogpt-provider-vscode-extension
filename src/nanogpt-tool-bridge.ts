@@ -355,7 +355,7 @@ function normalizeBridgeMode(mode: unknown, hasToolCalls: boolean): "tool" | "fi
 }
 
 function contentValueToText(value: unknown): string {
-  if (value == null) {
+  if (value === null || value === undefined) {
     return "";
   }
 
@@ -402,7 +402,7 @@ function contentValueToText(value: unknown): string {
 }
 
 function normalizeToolArguments(value: unknown): object {
-  if (value == null) {
+  if (value === null || value === undefined) {
     return {};
   }
 
@@ -451,7 +451,7 @@ function resolveToolName(name: unknown, knownNames: ReadonlyMap<string, string>)
 }
 
 function normalizeToolCallsContainer(value: unknown): unknown[] {
-  if (value == null) {
+  if (value === null || value === undefined) {
     return [];
   }
 
@@ -541,7 +541,7 @@ function normalizeToolCall(
 }
 
 function normalizeBridgeTurnPayload(value: unknown, depth = 0): BridgeTurnPayload | undefined {
-  if (depth > 5 || value == null) {
+  if (depth > 5 || value === null || value === undefined) {
     return undefined;
   }
 

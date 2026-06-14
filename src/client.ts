@@ -468,7 +468,7 @@ export class NanoGptClient {
       toolMode: params.toolMode,
       parallelToolCalls: params.parallelToolCalls,
     });
-    let bridgeTelemetry = createEmptyBridgeTelemetry();
+    const bridgeTelemetry = createEmptyBridgeTelemetry();
     let turn = await this.executeBridgeTurn({
       ...params,
       tools,
