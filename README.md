@@ -65,21 +65,22 @@ code --install-extension nanogpt-provider-vscode-extension-0.0.2.vsix --force
 
 ## Setup
 
-After installing the extension:
+After installing the extension, VS Code automatically registers the NanoGPT provider. The recommended first-run path is:
 
 1. Open the Command Palette.
-2. Run `Chat: Manage Language Models`.
-3. Add or configure the `NanoGPT` provider.
-4. Enter your NanoGPT API key when prompted.
-5. Open VS Code Chat and select a NanoGPT model from the model picker.
+2. Run `NanoGPT: Manage API Key` and enter your NanoGPT API key.
+3. Open VS Code Chat and open the model picker.
+4. Select the `NanoGPT` provider and configure which discovered models should be visible in your picker.
+5. Start chatting with a NanoGPT model.
 
-Prefer the provider configuration flow because VS Code stores the API key as a secret. Use `NanoGPT: Manage API Key` only as a fallback when the provider UI is unavailable.
+If you want to revisit the provider onboarding flow later, you can also run `NanoGPT: Reset Saved Configuration` to clear the extension-owned state and start over.
 
 You can also use these commands:
 
 ```text
 NanoGPT: Manage API Key
 NanoGPT: Refresh Models
+NanoGPT: Reset Saved Configuration
 ```
 
 ## Configuration
@@ -184,7 +185,7 @@ Known limitations:
 
 ## Security notes
 
-- **Prefer the VS Code provider configuration flow** (`Chat: Manage Language Models`) first, and use `NanoGPT: Manage API Key` only as a fallback — both store your key in VS Code's secret storage rather than in plain-text settings.
+- Prefer the VS Code provider configuration flow (`Chat: Manage Language Models`) when it is available, but the normal post-install path for this extension is to run `NanoGPT: Manage API Key` from the Command Palette and then open the model picker to choose which discovered NanoGPT models are visible. Both paths store your key in VS Code's secret storage rather than in plain-text settings.
 - Avoid putting API keys directly into checked-in settings files. If you must use `nanogpt.apiKey` in settings, ensure it is not committed to Git.
 - The extension also reads `NANOGPT_API_KEY` from the environment as a last-resort fallback. Use this only in local development; environment variables can leak through crash reports, process listings, or CI logs.
 

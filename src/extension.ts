@@ -24,6 +24,14 @@ const PERSISTED_MODEL_CACHE_KEY = "nanogpt.modelCache";
 const PERSISTED_MODEL_CACHE_VERSION = 1;
 const RESET_COMMAND_ID = "nanogpt.resetConfiguration";
 const RESET_CONFIRM_ACTION = "Reset NanoGPT";
+const RESET_MANAGE_API_KEY_ACTION = "Manage API Key";
+const RESET_ADD_MODELS_ACTION = "Add Models";
+const LANGUAGE_MODEL_MANAGEMENT_COMMAND_CANDIDATES = [
+  "workbench.action.chat.manageModels",
+  "workbench.action.languageModels.manage",
+  "workbench.action.chat.addModels",
+  "workbench.action.addModelProvider",
+] as const;
 const RESETTABLE_CONFIGURATION_KEYS = [
   "apiKey",
   "routingMode",
@@ -200,6 +208,27 @@ async function clearOwnedConfiguration(config: vscode.WorkspaceConfiguration): P
   }
 
   return clearedEntries;
+}
+
+async function openLanguageModelManagement(logger: NanoGptLogger): Promise<boolean> {
+  try {
+    const availableCommands = new Set(await vscode.commands.getCommands(true));
+    const commandId = LANGUAGE_MODEL_MANAGEMENT_COMMAND_CANDIDATES.find((candidate) =>
+      availableCommands.has(candidate)
+    );
+
+    if (!commandId) {
+      logger.warn("No VS Code language-model management command is available in this build");
+      return false;
+    }
+
+    await vscode.commands.executeCommand(commandId);
+    logger.info(`Opened VS Code language-model management (${formatKeyValuePairs({ commandId })})`);
+    return true;
+  } catch (error) {
+    logger.warn(`Failed to open VS Code language-model management: ${formatError(error)}`);
+    return false;
+  }
 }
 
 async function logRuntimeModelResolution(logger: NanoGptLogger): Promise<void> {
@@ -863,9 +892,23 @@ export function activate(context: vscode.ExtensionContext): void {
       logger.info(
         `NanoGPT saved configuration reset (${formatKeyValuePairs({ clearedEntries })})`,
       );
-      void vscode.window.showInformationMessage(
-        "NanoGPT saved configuration reset. Re-run Add Models > NanoGPT to onboard again.",
+      const nextAction = await vscode.window.showInformationMessage(
+        "NanoGPT saved configuration reset.",
+        RESET_MANAGE_API_KEY_ACTION,
+        RESET_ADD_MODELS_ACTION,
       );
+
+      if (nextAction === RESET_MANAGE_API_KEY_ACTION) {
+        await vscode.commands.executeCommand("nanogpt.manage");
+        return;
+      }
+
+      if (nextAction === RESET_ADD_MODELS_ACTION) {
+        const openedManagement = await openLanguageModelManagement(logger);
+        if (!openedManagement) {
+          await vscode.commands.executeCommand("nanogpt.manage");
+        }
+      }
     }),
   );
 }

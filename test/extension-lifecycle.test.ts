@@ -66,6 +66,7 @@ const createOutputChannel = vi.fn(() => ({
   dispose: vi.fn(),
 }));
 const executeCommand = vi.fn(async (command: string, ...args: unknown[]) => registeredCommands.get(command)?.(...args));
+const getCommands = vi.fn(async () => [] as string[]);
 const registerCommand = vi.fn((command: string, handler: (...args: unknown[]) => unknown) => {
   registeredCommands.set(command, handler);
   return {
@@ -125,6 +126,7 @@ vi.mock("vscode", () => ({
   },
   commands: {
     executeCommand,
+    getCommands,
     registerCommand,
   },
   lm: {
@@ -150,6 +152,8 @@ describe("NanoGPT provider lifecycle", () => {
     configurationListener = undefined;
     createOutputChannel.mockClear();
     executeCommand.mockClear();
+    getCommands.mockReset();
+    getCommands.mockResolvedValue([]);
     onDidChangeConfiguration.mockClear();
     registerCommand.mockClear();
     registerLanguageModelChatProvider.mockClear();
@@ -202,7 +206,7 @@ describe("NanoGPT provider lifecycle", () => {
     expect(onModelsChanged).toHaveBeenCalledTimes(2);
   });
 
-  test("reset saved configuration clears owned settings, secrets, and cached models", async () => {
+  test("reset saved configuration can route directly into manage API key onboarding", async () => {
     const { activate } = await import("../src/extension.js");
 
     const context = createContext();
@@ -219,6 +223,8 @@ describe("NanoGPT provider lifecycle", () => {
     registeredProvider?.onDidChangeLanguageModelChatInformation?.(onModelsChanged);
 
     showWarningMessage.mockResolvedValueOnce("Reset NanoGPT");
+    showInformationMessage.mockResolvedValueOnce("Manage API Key");
+    showInputBox.mockResolvedValueOnce(undefined);
     workspaceConfiguration.inspect.mockImplementation((key: string) => {
       if (key === "apiKey") {
         return { globalValue: "legacy-key", workspaceValue: undefined, workspaceFolderValue: undefined };
@@ -258,8 +264,32 @@ describe("NanoGPT provider lifecycle", () => {
     expect(context.globalState.update).toHaveBeenCalledWith("nanogpt.modelCache", undefined);
     expect(onModelsChanged).toHaveBeenCalledTimes(1);
     expect(showInformationMessage).toHaveBeenCalledWith(
-      "NanoGPT saved configuration reset. Re-run Add Models > NanoGPT to onboard again.",
+      "NanoGPT saved configuration reset.",
+      "Manage API Key",
+      "Add Models",
     );
+    expect(executeCommand).toHaveBeenCalledWith("nanogpt.manage");
+    expect(showInputBox).toHaveBeenCalledTimes(1);
+  });
+
+  test("reset saved configuration can reopen VS Code add models flow", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    showWarningMessage.mockResolvedValueOnce("Reset NanoGPT");
+    showInformationMessage.mockResolvedValueOnce("Add Models");
+    getCommands.mockResolvedValueOnce(["workbench.action.chat.addModels"]);
+
+    const resetHandler = registeredCommands.get("nanogpt.resetConfiguration");
+    expect(resetHandler).toBeDefined();
+    await resetHandler?.();
+
+    expect(getCommands).toHaveBeenCalledWith(true);
+    expect(executeCommand).toHaveBeenCalledWith("workbench.action.chat.addModels");
+    expect(executeCommand).not.toHaveBeenCalledWith("nanogpt.manage");
   });
 
   test("model-affecting workspace settings changes notify VS Code to rediscover models", async () => {
