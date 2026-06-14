@@ -22,6 +22,18 @@ import { formatKeyValuePairs, formatRoleCounts, formatError, isObject, sha256Hex
 const VENDOR_ID = "nanogpt";
 const PERSISTED_MODEL_CACHE_KEY = "nanogpt.modelCache";
 const PERSISTED_MODEL_CACHE_VERSION = 1;
+const RESET_COMMAND_ID = "nanogpt.resetConfiguration";
+const RESET_CONFIRM_ACTION = "Reset NanoGPT";
+const RESETTABLE_CONFIGURATION_KEYS = [
+  "apiKey",
+  "routingMode",
+  "provider",
+  "models",
+  "reasoningEffort",
+  "reasoningOutput",
+  "toolCallingStrategy",
+  VERBOSE_LOGGING_SETTING,
+] as const;
 
 type PersistedModelCache = {
   version: number;
@@ -160,6 +172,34 @@ function summarizeRuntimeModel(model: RuntimeLanguageModelLike): string {
     capabilityFamily: getRuntimeCapabilityValue(model, "family"),
     capabilityTokenizer: getRuntimeCapabilityValue(model, "tokenizer"),
   });
+}
+
+async function clearOwnedConfiguration(config: vscode.WorkspaceConfiguration): Promise<number> {
+  let clearedEntries = 0;
+
+  for (const key of RESETTABLE_CONFIGURATION_KEYS) {
+    const inspection = config.inspect(key);
+    if (!inspection) {
+      continue;
+    }
+
+    if (inspection.globalValue !== undefined) {
+      await config.update(key, undefined, vscode.ConfigurationTarget.Global);
+      clearedEntries += 1;
+    }
+
+    if (inspection.workspaceValue !== undefined) {
+      await config.update(key, undefined, vscode.ConfigurationTarget.Workspace);
+      clearedEntries += 1;
+    }
+
+    if (inspection.workspaceFolderValue !== undefined) {
+      await config.update(key, undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+      clearedEntries += 1;
+    }
+  }
+
+  return clearedEntries;
 }
 
 async function logRuntimeModelResolution(logger: NanoGptLogger): Promise<void> {
@@ -326,6 +366,10 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     }
   }
 
+  private async handleFreshInstallMissingApiKeyOnboarding(): Promise<void> {
+    await vscode.commands.executeCommand("nanogpt.manage");
+  }
+
   /**
    * Provides the list of available NanoGPT models to VS Code.
    *
@@ -413,6 +457,17 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
 
     if (!apiKey) {
       if (options.silent) {
+        if (!options.configuration) {
+          this.logger.info(
+            `[${requestId}] model discovery prompting for API key during silent fresh-install onboarding (${formatKeyValuePairs({
+              routingMode,
+              durationMs: Date.now() - startedAt,
+            })})`,
+          );
+          await this.handleFreshInstallMissingApiKeyOnboarding();
+          return DEFAULT_MODELS;
+        }
+
         this.logger.info(
           `[${requestId}] model discovery skipped without API key during silent resolution (${formatKeyValuePairs({
             routingMode,
@@ -706,9 +761,10 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
 /**
  * Activates the NanoGPT provider extension.
  *
- * Registers the language model chat provider and the `nanogpt.manage`
- * and `nanogpt.refreshModels` commands. Shows a warning when the VS Code
- * build does not support `registerLanguageModelChatProvider`.
+ * Registers the language model chat provider and the `nanogpt.manage`,
+ * `nanogpt.refreshModels`, and `nanogpt.resetConfiguration` commands.
+ * Shows a warning when the VS Code build does not support
+ * `registerLanguageModelChatProvider`.
  */
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME, { log: true });
@@ -785,6 +841,31 @@ export function activate(context: vscode.ExtensionContext): void {
       provider.clearModelCache("manual-refresh");
       logger.info("NanoGPT model cache cleared by refresh command");
       void vscode.window.showInformationMessage("NanoGPT model cache cleared.");
+    }),
+    vscode.commands.registerCommand(RESET_COMMAND_ID, async () => {
+      logger.debug("Reset configuration command invoked");
+
+      const confirmation = await vscode.window.showWarningMessage(
+        "Reset NanoGPT saved settings, API key, and cached models?",
+        { modal: true },
+        RESET_CONFIRM_ACTION,
+      );
+
+      if (confirmation !== RESET_CONFIRM_ACTION) {
+        logger.debug("Reset configuration command cancelled");
+        return;
+      }
+
+      await context.secrets.delete(SECRET_KEY);
+      const clearedEntries = await clearOwnedConfiguration(vscode.workspace.getConfiguration("nanogpt"));
+      provider.clearModelCache("manual-reset");
+
+      logger.info(
+        `NanoGPT saved configuration reset (${formatKeyValuePairs({ clearedEntries })})`,
+      );
+      void vscode.window.showInformationMessage(
+        "NanoGPT saved configuration reset. Re-run Add Models > NanoGPT to onboard again.",
+      );
     }),
   );
 }

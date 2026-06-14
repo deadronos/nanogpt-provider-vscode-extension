@@ -134,6 +134,10 @@
       {
         "command": "nanogpt.refreshModels",
         "title": "NanoGPT: Refresh Models"
+      },
+      {
+        "command": "nanogpt.resetConfiguration",
+        "title": "NanoGPT: Reset Saved Configuration"
       }
     ],
     "configuration": {

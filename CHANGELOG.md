@@ -7,6 +7,8 @@ All notable changes to this project will be documented in this file.
 ## 0.0.18
 
 - Fixed fresh-install onboarding in newer VS Code Insiders builds: the NanoGPT provider no longer declares `apiKey` as a required language-model provider field, and unconfigured non-silent discovery now returns fallback models plus missing-key onboarding instead of an empty model list. This restores the `Add Models > NanoGPT` flow when no provider instance exists yet.
+- Changed silent discovery for the unconfigured NanoGPT provider to open the existing API-key entry flow instead of staying fully passive. This lets `Add Models > NanoGPT` prompt for a key on first run while keeping configured silent discovery non-interactive.
+- Added `NanoGPT: Reset Saved Configuration` so users can clear extension-owned NanoGPT state without reinstalling VS Code or the extension. The command deletes the saved API key, removes `nanogpt.*` settings at all VS Code scopes, clears the persisted model cache, and nudges users back into the add-model onboarding flow.
 
 ## 0.0.17
 

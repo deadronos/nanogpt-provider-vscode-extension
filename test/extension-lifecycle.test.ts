@@ -90,9 +90,20 @@ const registerLanguageModelChatProvider = vi.fn((vendor: string, provider: unkno
 const showInformationMessage = vi.fn();
 const showInputBox = vi.fn();
 const showWarningMessage = vi.fn();
+const ConfigurationTarget = {
+  Global: Symbol("Global"),
+  Workspace: Symbol("Workspace"),
+  WorkspaceFolder: Symbol("WorkspaceFolder"),
+};
+const workspaceConfiguration = {
+  get: vi.fn((_: string, defaultValue: unknown) => defaultValue),
+  inspect: vi.fn(() => undefined),
+  update: vi.fn(async () => undefined),
+};
 const originalNanoGptApiKey = process.env.NANOGPT_API_KEY;
 
 vi.mock("vscode", () => ({
+  ConfigurationTarget,
   EventEmitter,
   LanguageModelError: class extends Error {},
   LanguageModelTextPart: class {
@@ -126,9 +137,7 @@ vi.mock("vscode", () => ({
     showWarningMessage,
   },
   workspace: {
-    getConfiguration: vi.fn(() => ({
-      get: vi.fn((_: string, defaultValue: unknown) => defaultValue),
-    })),
+    getConfiguration: vi.fn(() => workspaceConfiguration),
     onDidChangeConfiguration,
   },
 }));
@@ -147,6 +156,12 @@ describe("NanoGPT provider lifecycle", () => {
     showInformationMessage.mockReset();
     showInputBox.mockReset();
     showWarningMessage.mockReset();
+    workspaceConfiguration.get.mockClear();
+    workspaceConfiguration.get.mockImplementation((_: string, defaultValue: unknown) => defaultValue);
+    workspaceConfiguration.inspect.mockReset();
+    workspaceConfiguration.inspect.mockReturnValue(undefined);
+    workspaceConfiguration.update.mockReset();
+    workspaceConfiguration.update.mockResolvedValue(undefined);
   });
 
   afterAll(() => {
@@ -185,6 +200,66 @@ describe("NanoGPT provider lifecycle", () => {
     await refreshHandler?.();
 
     expect(onModelsChanged).toHaveBeenCalledTimes(2);
+  });
+
+  test("reset saved configuration clears owned settings, secrets, and cached models", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    const context = createContext();
+    await context.globalState.update("nanogpt.modelCache", {
+      version: 1,
+      entries: {
+        subscription: [{ id: "cached-model" }],
+      },
+    });
+
+    activate(context as any);
+
+    const onModelsChanged = vi.fn();
+    registeredProvider?.onDidChangeLanguageModelChatInformation?.(onModelsChanged);
+
+    showWarningMessage.mockResolvedValueOnce("Reset NanoGPT");
+    workspaceConfiguration.inspect.mockImplementation((key: string) => {
+      if (key === "apiKey") {
+        return { globalValue: "legacy-key", workspaceValue: undefined, workspaceFolderValue: undefined };
+      }
+
+      if (key === "routingMode") {
+        return { globalValue: undefined, workspaceValue: "paygo", workspaceFolderValue: undefined };
+      }
+
+      if (key === "models") {
+        return { globalValue: undefined, workspaceValue: undefined, workspaceFolderValue: ["gpt-5.4-mini"] };
+      }
+
+      return undefined;
+    });
+
+    const resetHandler = registeredCommands.get("nanogpt.resetConfiguration");
+    expect(resetHandler).toBeDefined();
+    await resetHandler?.();
+
+    expect(context.secrets.delete).toHaveBeenCalledWith("nanogpt.apiKey");
+    expect(workspaceConfiguration.update).toHaveBeenCalledWith(
+      "apiKey",
+      undefined,
+      ConfigurationTarget.Global,
+    );
+    expect(workspaceConfiguration.update).toHaveBeenCalledWith(
+      "routingMode",
+      undefined,
+      ConfigurationTarget.Workspace,
+    );
+    expect(workspaceConfiguration.update).toHaveBeenCalledWith(
+      "models",
+      undefined,
+      ConfigurationTarget.WorkspaceFolder,
+    );
+    expect(context.globalState.update).toHaveBeenCalledWith("nanogpt.modelCache", undefined);
+    expect(onModelsChanged).toHaveBeenCalledTimes(1);
+    expect(showInformationMessage).toHaveBeenCalledWith(
+      "NanoGPT saved configuration reset. Re-run Add Models > NanoGPT to onboard again.",
+    );
   });
 
   test("model-affecting workspace settings changes notify VS Code to rediscover models", async () => {
@@ -293,6 +368,26 @@ describe("NanoGPT provider lifecycle", () => {
     expect(secondModels).toEqual([]);
     expect(showWarningMessage).not.toHaveBeenCalled();
     expect(executeCommand).not.toHaveBeenCalled();
+  });
+
+  test("silent discovery on a fresh install prompts directly for the API key", async () => {
+    const { activate } = await import("../src/extension.js");
+
+    const context = createContext();
+
+    activate(context as any);
+
+    showInputBox.mockResolvedValueOnce(undefined);
+
+    const models = await (registeredProvider as any).provideLanguageModelChatInformation(
+      { silent: true },
+      createToken() as any,
+    );
+
+    expect(models).toHaveLength(1);
+    expect(executeCommand).toHaveBeenCalledWith("nanogpt.manage");
+    expect(showInputBox).toHaveBeenCalledTimes(1);
+    expect(showWarningMessage).not.toHaveBeenCalled();
   });
 
   test("allowlist fallback returns no models and shows no UI during silent discovery", async () => {
