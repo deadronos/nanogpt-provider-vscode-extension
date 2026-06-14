@@ -340,7 +340,7 @@ describe("NanoGPT provider lifecycle", () => {
       { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) },
     );
 
-    expect(models).toHaveLength(1);
+    expect(models).toHaveLength(5);
     expect(showWarningMessage).toHaveBeenCalledWith(
       expect.stringContaining("NanoGPT API key"),
       "Manage API Key",
@@ -414,7 +414,7 @@ describe("NanoGPT provider lifecycle", () => {
       createToken() as any,
     );
 
-    expect(models).toHaveLength(1);
+    expect(models).toHaveLength(5);
     expect(executeCommand).toHaveBeenCalledWith("nanogpt.manage");
     expect(showInputBox).toHaveBeenCalledTimes(1);
     expect(showWarningMessage).not.toHaveBeenCalled();
@@ -453,7 +453,7 @@ describe("NanoGPT provider lifecycle", () => {
     const { sha256Hex } = await import("../src/utils.js");
 
     const apiKey = "hydrated-key";
-    const cacheKey = `subscription:${sha256Hex(apiKey)}`;
+    const cacheKey = `subscription:${sha256Hex(apiKey)}:*:*`;
     const cachedModel = {
       id: "hydrated-model",
       name: "Hydrated Model",
@@ -499,7 +499,7 @@ describe("NanoGPT provider lifecycle", () => {
     const { sha256Hex } = await import("../src/utils.js");
 
     const apiKey = "persist-key";
-    const expectedCacheKey = `subscription:${sha256Hex(apiKey)}`;
+    const expectedCacheKey = `subscription:${sha256Hex(apiKey)}:*:*`;
     const discoveredModel = {
       id: "discovered-model",
       name: "Discovered Model",
@@ -564,7 +564,7 @@ describe("NanoGPT provider lifecycle", () => {
     const { sha256Hex } = await import("../src/utils.js");
 
     const apiKey = "stale-key";
-    const cacheKey = `subscription:${sha256Hex(apiKey)}`;
+    const cacheKey = `subscription:${sha256Hex(apiKey)}:*:*`;
     const staleModel = {
       id: "stale-model",
       name: "Stale",

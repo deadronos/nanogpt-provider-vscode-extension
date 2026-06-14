@@ -70,9 +70,10 @@ Responsibilities:
 
 Responsibilities:
 
-- Exports `DEFAULT_MODELS` fallback array.
+- Exports `DEFAULT_MODELS` fallback array (5 models spanning gpt-5.4, claude-sonnet, gemini-2.5, and deepseek families).
 - Resolves all configuration from provider configuration, workspace settings, secret storage, and environment fallback.
 - Provides typed getters: `getRoutingMode`, `getProvider`, `getModelAllowlist`, `getReasoningEffort`, `getReasoningOutput`, `getToolCallingStrategy`, `resolveApiKey`, `isVerboseLoggingEnabled`. The reasoning and tool-calling getters also accept an optional `modelOptions` parameter so per-request overrides win over provider configuration and workspace settings.
+- `resolveApiKey` uses a two-tier safe chain by default: per-model provider configuration → VS Code secret storage. The legacy workspace-setting and env-var fallbacks are available only when explicitly opted in via `{ allowInsecureSources: true }`.
 
 #### `src/logging.ts`
 
@@ -151,6 +152,8 @@ Pure request builder — no I/O, no VS Code.
 Exports:
 
 - `buildNanoGptChatCompletionRequest()` — assembles URL, headers, and JSON body.
+- `prepareChatRequest()` — normalises messages before serialisation: strips oversized base64 inline images and drops empty assistant turns. Designed as the extension-local equivalent of the `prepareLanguageModelChat` hook that newer VS Code APIs may expose on `LanguageModelChatInformation` in the future.
+- `prepareChatRequest()` — internal request-preparation hook that normalises messages before serialisation. Currently strips oversized base64 inline images and drops empty assistant turns. Designed as the extension-local equivalent of the `prepareLanguageModelChat` hook that newer VS Code APIs may expose on `LanguageModelChatInformation` in the future.
 
 #### `src/nanogpt-parser.ts`
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { buildNanoGptChatCompletionRequest } from "../src/nanogpt-request.js";
+import { buildNanoGptChatCompletionRequest, prepareChatRequest } from "../src/nanogpt-request.js";
+import type { NanoGptChatMessage } from "../src/nanogpt-types.js";
 
 describe("nanogpt-request: buildNanoGptChatCompletionRequest", () => {
   test("builds subscription chat completion requests without paygo provider header", () => {
@@ -179,5 +180,93 @@ describe("nanogpt-request: buildNanoGptChatCompletionRequest", () => {
         tools: [hugeTool],
       }),
     ).toThrow("exceeds the 200 KB limit");
+  });
+});
+
+describe("nanogpt-request: prepareChatRequest", () => {
+  test("passes through normal messages unchanged", () => {
+    const messages: NanoGptChatMessage[] = [
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "Hi there" },
+    ];
+    const result = prepareChatRequest(messages);
+    expect(result).toEqual(messages);
+  });
+
+  test("drops empty assistant turns", () => {
+    const messages: NanoGptChatMessage[] = [
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "" },
+      { role: "user", content: "Follow up" },
+    ];
+    const result = prepareChatRequest(messages);
+    expect(result).toHaveLength(2);
+    expect(result[0]!.content).toBe("Hello");
+    expect(result[1]!.content).toBe("Follow up");
+  });
+
+  test("preserves assistant turns with non-empty content", () => {
+    const messages: NanoGptChatMessage[] = [
+      { role: "assistant", content: "I have content" },
+      { role: "user", content: "OK" },
+    ];
+    const result = prepareChatRequest(messages);
+    expect(result).toHaveLength(2);
+  });
+
+  test("strips oversized base64 inline images exceeding the size limit", () => {
+    const smallBase64 = "data:image/png;base64," + "A".repeat(100);
+    const oversizedBase64 = "data:image/png;base64," + "A".repeat(15_000_000);
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: "Look at this" },
+          { type: "image_url" as const, image_url: { url: smallBase64 } },
+          { type: "image_url" as const, image_url: { url: oversizedBase64 } },
+        ] as NanoGptChatMessage["content"],
+      },
+    ];
+    const result = prepareChatRequest(messages as unknown as NanoGptChatMessage[]);
+    const parts = result[0]!.content as Array<{ type: string; image_url?: { url: string } }>;
+    const imageParts = parts.filter((p) => p.type === "image_url");
+    expect(imageParts).toHaveLength(1);
+    expect(imageParts[0]!.image_url!.url).toBe(smallBase64);
+  });
+
+  test("keeps non-data: image URLs intact", () => {
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: "See image" },
+          { type: "image_url" as const, image_url: { url: "https://example.com/image.png" } },
+        ] as NanoGptChatMessage["content"],
+      },
+    ];
+    const result = prepareChatRequest(messages as unknown as NanoGptChatMessage[]);
+    const parts = result[0]!.content as Array<{ type: string }>;
+    expect(parts).toHaveLength(2);
+  });
+
+  test("handles messages with non-array content", () => {
+    const messages: NanoGptChatMessage[] = [
+      { role: "system", content: "You are helpful" },
+      { role: "user", content: "Hi" },
+    ];
+    const result = prepareChatRequest(messages);
+    expect(result).toEqual(messages);
+  });
+
+  test("preserves all messages when nothing needs filtering", () => {
+    const messages: NanoGptChatMessage[] = [
+      { role: "system", content: "Be helpful" },
+      { role: "user", content: "Hello" },
+      { role: "assistant", content: "Hi!" },
+      { role: "user", content: "What time is it?" },
+    ];
+    const result = prepareChatRequest(messages);
+    expect(result).toHaveLength(4);
+    expect(result).toEqual(messages);
   });
 });

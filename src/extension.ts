@@ -151,9 +151,41 @@ function createModelCacheKey(
   apiKey: string,
   routingMode: string,
   allowlistKey?: string,
+  families?: readonly string[],
 ): string {
-  const key = `${routingMode}:${sha256Hex(apiKey)}`;
-  return allowlistKey ? `${key}:${allowlistKey}` : key;
+  const apiKeyHash = sha256Hex(apiKey);
+  const allowlistSegment = allowlistKey ?? "*";
+  const familySegment = families && families.length > 0
+    ? families.slice().sort().join(",")
+    : "*";
+  return `${routingMode}:${apiKeyHash}:${allowlistSegment}:${familySegment}`;
+}
+
+/**
+ * Derives a stable set of "model family" tokens from an allowlist of
+ * model ids. The heuristic strips size/quantization suffixes so that
+ * `gpt-5.4-mini` and `gpt-5.4` collapse to the same `gpt-5.4` family
+ * token, and `claude-sonnet-4.5` collapses to `claude-sonnet`. This
+ * is good enough to partition the discovery cache by tokenization
+ * family for common cases without requiring a client-side model
+ * registry; ambiguous ids fall through to the original id.
+ */
+function deriveFamilyTokensFromAllowlist(allowlist: readonly string[]): string[] {
+  const families = new Set<string>();
+  for (const raw of allowlist) {
+    const id = String(raw ?? "").trim();
+    if (!id) {
+      continue;
+    }
+    // Strip trailing size/quantization markers such as `-mini`, `-pro`,
+    // `-32k`, `-instruct`, `-chat`, `-base`, `-preview`.
+    const stripped = id.replace(
+      /[-_.](mini|pro|max|nano|tiny|small|medium|large|xlarge|xxl|instruct|chat|base|preview|preview-\d+|\d+[kmb](?:-context)?|\d{4,5})$/i,
+      "",
+    );
+    families.add(stripped || id);
+  }
+  return Array.from(families);
 }
 
 function getRuntimeCapabilityValue(model: RuntimeLanguageModelLike, key: string): string {
@@ -517,7 +549,12 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
       return DEFAULT_MODELS;
     }
 
-    const cacheKey = createModelCacheKey(apiKey, routingMode, allowlistKey);
+    const cacheKey = createModelCacheKey(
+      apiKey,
+      routingMode,
+      allowlistKey,
+      deriveFamilyTokensFromAllowlist(allowlist),
+    );
 
     const cached = this.modelCache.get(cacheKey);
     if (cached) {
@@ -870,6 +907,10 @@ export function activate(context: vscode.ExtensionContext): void {
       provider.clearModelCache("manual-refresh");
       logger.info("NanoGPT model cache cleared by refresh command");
       void vscode.window.showInformationMessage("NanoGPT model cache cleared.");
+    }),
+    vscode.commands.registerCommand("nanogpt.openWalkthrough", () => {
+      logger.debug("Open walkthrough command invoked");
+      void vscode.commands.executeCommand("workbench.action.openWalkthrough", "nanogpt.getStarted");
     }),
     vscode.commands.registerCommand(RESET_COMMAND_ID, async () => {
       logger.debug("Reset configuration command invoked");

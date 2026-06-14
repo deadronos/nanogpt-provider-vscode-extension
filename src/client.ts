@@ -6,6 +6,7 @@ import {
   NANOGPT_SUBSCRIPTION_BASE_URL,
   NanoGptSseParser,
   mapNanoGptModelsToVscode,
+  prepareChatRequest,
   type NanoGptChatMessage,
   type NanoGptReasoningEffort,
   type NanoGptReasoningOutput,
@@ -426,7 +427,7 @@ export class NanoGptClient {
       request: buildNanoGptChatCompletionRequest({
         apiKey: params.apiKey,
         modelId: params.modelId,
-        messages: params.messages,
+        messages: prepareChatRequest(params.messages),
         routingMode: params.routingMode,
         provider: params.provider,
         maxTokens: params.maxTokens,
@@ -571,7 +572,7 @@ export class NanoGptClient {
       request: buildNanoGptChatCompletionRequest({
         apiKey: params.apiKey,
         modelId: params.modelId,
-        messages: params.messages,
+        messages: prepareChatRequest(params.messages),
         routingMode: params.routingMode,
         provider: params.provider,
         maxTokens: params.maxTokens,

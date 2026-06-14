@@ -52,6 +52,6 @@ describe("NanoGPT VS Code compatibility", () => {
     expect(showWarningMessage).toHaveBeenCalledWith(
       "NanoGPT requires a VS Code build with Language Model Chat Provider support.",
     );
-    expect(registerCommand).toHaveBeenCalledTimes(3);
+    expect(registerCommand).toHaveBeenCalledTimes(4);
   });
 });
