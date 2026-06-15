@@ -54,13 +54,13 @@ This extension is currently distributed through GitHub Releases as a `.vsix` fil
 You can also install it from the command line:
 
 ```bash
-code --install-extension nanogpt-provider-vscode-extension-0.0.1.vsix
+code --install-extension nanogpt-provider-vscode-extension-0.0.20.vsix
 ```
 
 When installed from VSIX, VS Code does not automatically update the extension by default. To update, download a newer `.vsix` release and install it again:
 
 ```bash
-code --install-extension nanogpt-provider-vscode-extension-0.0.2.vsix --force
+code --install-extension nanogpt-provider-vscode-extension-0.0.20.vsix --force
 ```
 
 ## Setup
@@ -148,7 +148,7 @@ npm run package
 Then install the generated `.vsix` file:
 
 ```bash
-code --install-extension ./nanogpt-provider-vscode-extension-0.0.1.vsix
+code --install-extension ./nanogpt-provider-vscode-extension-0.0.20.vsix
 ```
 
 ## Development
