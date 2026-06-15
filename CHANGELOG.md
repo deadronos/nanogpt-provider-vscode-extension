@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Refreshed the extension dev-tooling stack to the currently published versions available from npm, including newer `@types/node`, `vitest`, and `@vitest/coverage-v8` updates while keeping the VS Code API typings and packaging tooling aligned with the current published release line.
+
 ## 0.0.19
 
 - Tightened the API key resolution chain: `resolveApiKey` now consults only per-model provider configuration and VS Code secret storage by default. The legacy workspace-setting (`nanogpt.apiKey`) and environment-variable (`NANOGPT_API_KEY`) fallbacks are gated behind an explicit `{ allowInsecureSources: true }` opt-in to prevent accidental credential exposure through synced settings or child-process inheritance. The `nanogpt.apiKey` workspace setting is deprecated with migration guidance.
