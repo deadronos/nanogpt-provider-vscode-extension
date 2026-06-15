@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.20
+
 - Refreshed the extension dev-tooling stack to the currently published versions available from npm, including newer `@types/node`, `vitest`, and `@vitest/coverage-v8` updates while keeping the VS Code API typings and packaging tooling aligned with the current published release line.
 
 ## 0.0.19
