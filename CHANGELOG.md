@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ## 0.0.21
 
+- Fixed the language-model provider configuration schema to remove unsupported enum-label metadata from the manifest and runtime configuration schema, which resolves the VS Code strict-schema validation warning that was blocking provider registration.
 - Unified the native-turn buffering strategy so `native` and `auto` tool-calling modes share the same buffer path. The previous separate `deferredTextParts`/`bufferedNativeParts` paths were mutually exclusive by design but difficult to scan — they now flow through a single `shouldBufferNativeTurn` guard with a shared `emitParts` helper.
 - Wired bridge-turn stream part counts (`summary`) through `NanoGptChatStreamResult` so bridge and retry turns surface the same per-turn telemetry fidelity as native turns in the output log.
 - Buffered bridge-turn reasoning until the final committed turn instead of streaming reasoning live on every attempt. This prevents reasoning from a discarded repair-retry turn from leaking to the user when `reasoningOutput` is `native` or `visible`.

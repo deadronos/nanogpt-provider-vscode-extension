@@ -234,6 +234,23 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     expect(subModels[0]?.id).toBe("moonshotai/kimi-k2.5:thinking");
   });
 
+  test("buildModelConfigurationSchema avoids unsupported enum-label metadata", () => {
+    const schemaProps = buildModelConfigurationSchema().properties;
+
+    expect(schemaProps.routingMode).toEqual(
+      expect.not.objectContaining({ enumItemLabels: expect.anything() }),
+    );
+    expect(schemaProps.reasoningEffort).toEqual(
+      expect.not.objectContaining({ enumItemLabels: expect.anything() }),
+    );
+    expect(schemaProps.reasoningOutput).toEqual(
+      expect.not.objectContaining({ enumItemLabels: expect.anything() }),
+    );
+    expect(schemaProps.toolCallingStrategy).toEqual(
+      expect.not.objectContaining({ enumItemLabels: expect.anything() }),
+    );
+  });
+
   test("buildModelConfigurationSchema properties match package.json languageModelChatProviders contribution", () => {
     const __dirname = dirname(fileURLToPath(import.meta.url));
     const pkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json"), "utf8")) as {

@@ -177,7 +177,6 @@ export function buildModelConfigurationSchema(): VscodeModelMetadata["configurat
       routingMode: {
         type: "string",
         enum: ["subscription", "paygo"],
-        enumItemLabels: ["Subscription", "Pay as you go"],
         default: "subscription",
         description: "NanoGPT routing surface for chat completions.",
       },
@@ -189,7 +188,6 @@ export function buildModelConfigurationSchema(): VscodeModelMetadata["configurat
       reasoningEffort: {
         type: "string",
         enum: ["auto", "none", "minimal", "low", "medium", "high", "xhigh"],
-        enumItemLabels: ["Auto", "None", "Minimal", "Low", "Medium", "High", "Extra High"],
         default: "auto",
         group: "navigation",
         description: "Controls how much reasoning the model applies.",
@@ -197,14 +195,12 @@ export function buildModelConfigurationSchema(): VscodeModelMetadata["configurat
       reasoningOutput: {
         type: "string",
         enum: ["native", "hidden", "visible"],
-        enumItemLabels: ["Native", "Hidden", "Visible fallback"],
         default: "native",
         description: "Controls how streamed reasoning is surfaced by VS Code.",
       },
       toolCallingStrategy: {
         type: "string",
         enum: ["native", "auto", "bridge"],
-        enumItemLabels: ["Native", "Auto Retry", "Bridge"],
         default: "native",
         description:
           "Controls tool-calling reliability mode. Native forwards NanoGPT tools directly, auto retries empty or likely scaffolding-only native tool turns with a stricter bridge prompt, and bridge always uses the stricter bridge prompt.",
