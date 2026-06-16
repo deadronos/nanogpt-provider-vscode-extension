@@ -17,9 +17,9 @@ The extension is intentionally split into three implementation layers, with sub-
 1. **VS Code integration layer** (`src/extension.ts`, `src/config.ts`, `src/logging.ts`, `src/vscode-messaging.ts`)
    Owns VS Code API integration, provider registration, configuration resolution, secret handling, request logging, and runtime orchestration.
 2. **Transport layer** (`src/client.ts`)
-   Owns NanoGPT HTTP I/O, request execution, timeouts, SSE streaming, and transport-level logging hooks. It does not import VS Code.
+   Owns NanoGPT HTTP I/O, request execution, timeouts, SSE streaming, and transport-level logging hooks. Split across `src/client.ts` (orchestration), `src/client-stream.ts` (SSE pipeline), and `src/client-bridge.ts` (bridge mode). Does not import VS Code.
 3. **Core transformation layer** (`src/nanogpt.ts`, `src/nanogpt-types.ts`, `src/nanogpt-message.ts`, `src/nanogpt-tool-bridge.ts`, `src/nanogpt-request.ts`, `src/nanogpt-parser.ts`)
-   Owns pure types, request builders, message transforms, tool-calling bridge transforms, schema generation, SSE parsing helpers, and model metadata mapping. None of the core modules import VS Code.
+   Owns pure types, request builders, message transforms, tool-calling bridge transforms (split across `src/bridge-types.ts`, `src/bridge-message-builder.ts`, `src/bridge-payload-parser.ts`, `src/bridge-xml-parser.ts`, `src/bridge-json-parser.ts`), schema generation, SSE parsing helpers, and model metadata mapping. None of the core modules import VS Code.
 
 That separation is not incidental. It is a core design constraint of the repository and is enforced by test structure and project guidance.
 
@@ -33,13 +33,24 @@ That separation is not incidental. It is a core design constraint of the reposit
 | `src/logging.ts` | `NanoGPT` output channel and logger construction. |
 | `src/vscode-messaging.ts` | VS Code message-part compatibility (`toCoreMessages`, `toToolMode`, `createThinkingPart`). |
 | `src/client.ts` | Executes `GET /models` and `POST /chat/completions`, manages timeouts and cancellation, and streams SSE responses into typed callbacks. |
+| `src/client-stream.ts` | Core SSE streaming execution (`executeStreamingRequest`, `emitParts`) shared by native and bridge paths. |
+| `src/client-bridge.ts` | Bridge orchestration (`streamCompletionsViaBridge`, `executeBridgeTurn`), retry heuristics, and scaffolding detection. |
+| `src/provider-cache.ts` | Model cache key creation, hydration, and persistence to `globalState`. |
+| `src/provider-state.ts` | Warned-set hydration/persistence and the `warnOnceInvalidConfig` helper for deduplicated configuration warnings. |
+| `src/provider-logging-helpers.ts` | Message, tool, and runtime-model summarization for sanitized logging. |
 | `src/utils.ts` | Shared cross-cutting helpers: abort/timeout composition, formatting, type guards. |
 | `src/nanogpt-types.ts` | API constants and all type definitions (`NanoGptChatMessage`, `VscodeModelMetadata`, etc.). |
 | `src/nanogpt-message.ts` | Message/part conversion and tool serialization (`toNanoGptMessages`, `toNanoGptTools`). |
 | `src/nanogpt-tool-bridge.ts` | Strict JSON bridge prompt builder plus bridge-history and bridge-response transforms for reliable tool calling. |
+| `src/bridge-types.ts` | Shared types for the tool-calling bridge subsystem. |
+| `src/bridge-message-builder.ts` | Bridge prompt construction (`buildToolCallingBridgeMessages`, `buildToolCallingBridgeRepairMessages`). |
+| `src/bridge-payload-parser.ts` | Bridge response entry point (`parseToolCallingBridgeResponse`), delegates to XML and JSON sub-parsers. |
+| `src/bridge-xml-parser.ts` | XML-like `<tool_calls>` block extraction for bridge responses. |
+| `src/bridge-json-parser.ts` | JSON extraction, bridge turn normalization, tool-call container and argument parsing. |
 | `src/nanogpt-request.ts` | Request body/header builder (`buildNanoGptChatCompletionRequest`). |
 | `src/nanogpt-parser.ts` | SSE parser and collectors (`NanoGptSseParser`, `collectSseResponseParts`). |
 | `src/nanogpt.ts` | Barrel re-exports, `mapNanoGptModelsToVscode`, `buildModelConfigurationSchema`, `estimateTokenCount`. |
+| `src/default-models.ts` | Default model catalogue (5 models across families) surfaced when no API key or allowlist is configured. |
 | `test/client.test.ts` | Covers HTTP client behavior, error handling, stream parsing, reader release, and sanitized logging. |
 | `test/config.test.ts` | Covers configuration getters, API key precedence, model allowlist filtering, and reasoning/tool-calling validation. |
 | `test/extension.test.ts` | Covers provider behavior in isolation, including allowlist stubs and persisted cache hydration. |

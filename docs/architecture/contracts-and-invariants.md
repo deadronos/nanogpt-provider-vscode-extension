@@ -17,7 +17,7 @@ Expected responsibilities:
 - output channel creation (`logging.ts`)
 - VS Code request/response part adaptation (`vscode-messaging.ts`)
 
-### Transport Layer (`src/client.ts`)
+### Transport Layer (`src/client.ts`, `src/client-stream.ts`, `src/client-bridge.ts`)
 
 Must remain free of VS Code imports.
 
@@ -28,7 +28,7 @@ Expected responsibilities:
 - SSE stream reading
 - low-level sanitized transport logging
 
-### Core Transformation Layer (`src/nanogpt.ts`, `src/nanogpt-types.ts`, `src/nanogpt-message.ts`, `src/nanogpt-tool-bridge.ts`, `src/nanogpt-request.ts`, `src/nanogpt-parser.ts`)
+### Core Transformation Layer (`src/nanogpt.ts`, `src/nanogpt-types.ts`, `src/nanogpt-message.ts`, `src/nanogpt-tool-bridge.ts`, `src/bridge-types.ts`, `src/bridge-message-builder.ts`, `src/bridge-payload-parser.ts`, `src/bridge-xml-parser.ts`, `src/bridge-json-parser.ts`, `src/nanogpt-request.ts`, `src/nanogpt-parser.ts`, `src/default-models.ts`)
 
 Must remain free of VS Code imports and network I/O.
 
@@ -37,10 +37,11 @@ Expected responsibilities:
 - pure types (`nanogpt-types.ts`)
 - request builders (`nanogpt-request.ts`)
 - message transforms (`nanogpt-message.ts`)
-- tool-calling bridge transforms (`nanogpt-tool-bridge.ts`)
+- tool-calling bridge transforms (`nanogpt-tool-bridge.ts`, `bridge-types.ts`, `bridge-message-builder.ts`, `bridge-payload-parser.ts`, `bridge-xml-parser.ts`, `bridge-json-parser.ts`)
 - model mapping (`nanogpt.ts`)
 - schema builders (`nanogpt.ts`)
 - SSE parsing helpers (`nanogpt-parser.ts`)
+- default model catalogue (`default-models.ts`)
 
 ### Shared Utilities (`src/utils.ts`)
 

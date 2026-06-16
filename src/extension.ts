@@ -40,6 +40,7 @@ import {
   PERSISTED_INVALID_REASONING_OUTPUTS_KEY,
   PERSISTED_INVALID_TOOL_CALLING_STRATEGIES_KEY,
   persistWarnedSet,
+  warnOnceInvalidConfig,
 } from "./provider-state.js";
 
 const VENDOR_ID = "nanogpt";
@@ -505,15 +506,16 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     );
     const reasoningOutput = reasoningOutputResolution.value;
     if (reasoningOutputResolution.invalidValue) {
-      const invalidValue = reasoningOutputResolution.invalidValue;
-      if (!this.warnedInvalidReasoningOutputs.has(invalidValue)) {
-        this.warnedInvalidReasoningOutputs.add(invalidValue);
-        this.persistWarnedSet(PERSISTED_INVALID_REASONING_OUTPUTS_KEY, this.warnedInvalidReasoningOutputs);
-        const validValues = "hidden, visible, native";
-        this.logger.warn(
-          `NanoGPT reasoningOutput '${invalidValue}' is not one of ${validValues}; falling back to native`,
-        );
-      }
+        warnOnceInvalidConfig({
+          logger: this.logger,
+          warnedSet: this.warnedInvalidReasoningOutputs,
+          persistKey: PERSISTED_INVALID_REASONING_OUTPUTS_KEY,
+          workspaceState: this.context.workspaceState,
+          fieldName: "reasoningOutput",
+          invalidValue: reasoningOutputResolution.invalidValue,
+          validValues: "hidden, visible, native",
+          fallbackDescription: "native",
+        });
     }
     const reasoningEffortResolution = getReasoningEffortWithStatus(
       options.configuration,
@@ -521,15 +523,16 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     );
     const reasoningEffort = reasoningEffortResolution.value;
     if (reasoningEffortResolution.invalidValue) {
-      const invalidValue = reasoningEffortResolution.invalidValue;
-      if (!this.warnedInvalidReasoningEfforts.has(invalidValue)) {
-        this.warnedInvalidReasoningEfforts.add(invalidValue);
-        this.persistWarnedSet(PERSISTED_INVALID_REASONING_EFFORTS_KEY, this.warnedInvalidReasoningEfforts);
-        const validValues = "none, minimal, low, medium, high, xhigh";
-        this.logger.warn(
-          `NanoGPT reasoningEffort '${invalidValue}' is not one of ${validValues} (or 'auto'); falling back to the model default`,
-        );
-      }
+        warnOnceInvalidConfig({
+          logger: this.logger,
+          warnedSet: this.warnedInvalidReasoningEfforts,
+          persistKey: PERSISTED_INVALID_REASONING_EFFORTS_KEY,
+          workspaceState: this.context.workspaceState,
+          fieldName: "reasoningEffort",
+          invalidValue: reasoningEffortResolution.invalidValue,
+          validValues: "none, minimal, low, medium, high, xhigh",
+          fallbackDescription: "the model default",
+        });
     }
     const toolCallingStrategyResolution = getToolCallingStrategyWithStatus(
       options.configuration,
@@ -537,15 +540,16 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     );
     const toolCallingStrategy = toolCallingStrategyResolution.value;
     if (toolCallingStrategyResolution.invalidValue) {
-      const invalidValue = toolCallingStrategyResolution.invalidValue;
-      if (!this.warnedInvalidToolCallingStrategies.has(invalidValue)) {
-        this.warnedInvalidToolCallingStrategies.add(invalidValue);
-        this.persistWarnedSet(PERSISTED_INVALID_TOOL_CALLING_STRATEGIES_KEY, this.warnedInvalidToolCallingStrategies);
-        const validValues = "native, auto, bridge";
-        this.logger.warn(
-          `NanoGPT toolCallingStrategy '${invalidValue}' is not one of ${validValues}; falling back to native`,
-        );
-      }
+        warnOnceInvalidConfig({
+          logger: this.logger,
+          warnedSet: this.warnedInvalidToolCallingStrategies,
+          persistKey: PERSISTED_INVALID_TOOL_CALLING_STRATEGIES_KEY,
+          workspaceState: this.context.workspaceState,
+          fieldName: "toolCallingStrategy",
+          invalidValue: toolCallingStrategyResolution.invalidValue,
+          validValues: "native, auto, bridge",
+          fallbackDescription: "native",
+        });
     }
     const routingMode = getRoutingMode(options.configuration);
     const provider = getProvider(options.configuration);
@@ -639,26 +643,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
         progress.report(new vscode.LanguageModelTextPart(result.requiredToolWarning));
       }
 
-      const rawBridgeTelemetry =
-        typeof result?.bridgeTelemetry === "object" && result.bridgeTelemetry !== null
-          ? result.bridgeTelemetry
-          : {};
-      const bridgeTelemetry = {
-        bridgeRepairAttempts: 0,
-        bridgeRepairSuccesses: 0,
-        bridgeRawTextFallbacks: 0,
-        bridgeRequiredFailClosed: 0,
-        ...rawBridgeTelemetry,
-      };
-      const streamSummary =
-        typeof result?.summary === "object" && result.summary !== null
-          ? result.summary
-          : {
-              chunkCount: 0,
-              textPartCount: responseSummary.textDeltas,
-              reasoningPartCount: responseSummary.reasoningDeltas,
-              toolCallCount: responseSummary.toolCalls,
-            };
+        const { bridgeTelemetry, summary: streamSummary } = result;
 
       this.logger.info(
         `[${requestId}] chat request completed (${formatKeyValuePairs({

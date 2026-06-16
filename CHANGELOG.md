@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Refactoring
+
+- Extracted `src/bridge-xml-parser.ts` (XML-like tool-call extraction) and `src/bridge-json-parser.ts` (JSON extraction, bridge turn normalization, tool-call container parsing) from `src/bridge-payload-parser.ts`. The original module is now a thin entry point that imports from both sub-parsers and runs the normalization chain.
+- Extracted `src/client-stream.ts` (`executeStreamingRequest`, `emitParts`, SSE pipeline) and `src/client-bridge.ts` (`streamCompletionsViaBridge`, `executeBridgeTurn`, scaffolding detection, bridge telemetry helpers) from `src/client.ts`. The HTTP client now delegates to these standalone modules.
+- Extracted `warnOnceInvalidConfig()` to `src/provider-state.ts` and replaced three near-identical invalid-value warning blocks in `src/extension.ts` with calls to the shared helper.
+- Added shared `StreamRequestCore` and `StreamCallbacks` types in `src/client.ts` to eliminate copy-pasted parameter declarations across the streaming, bridge, and native completion methods.
+- Unified `processStreamParts`/`emitParts` in `src/client.ts` — `processStreamParts` now delegates to `emitParts` instead of duplicating the iteration and type-switch logic.
+- Tightened `NanoGptChatStreamResult` so `bridgeTelemetry` and `summary` are always fully populated by the client, removing the defensive spread that was previously required in the caller.
+
 ## 0.0.21
 
 - Extended the invalid-value `*WithStatus` pattern from `reasoningEffort` to `reasoningOutput` and `toolCallingStrategy` so configuration typos in those fields also surface a one-time deduplicated warning in the output log instead of silently falling back to their defaults.

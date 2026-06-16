@@ -59,3 +59,34 @@ export function persistWarnedSet(
     }
   })();
 }
+import type { NanoGptLogger } from "./client.js";
+
+/**
+ * Emits a one-time warning for an invalid configuration value and
+ * persists the fact that the user has been warned so the same typo
+ * does not spam the output log on every chat turn.
+ *
+ * @returns `true` when the warning was just emitted (first occurrence),
+ *          `false` when it was already warned before.
+ */
+export function warnOnceInvalidConfig(params: {
+  logger: NanoGptLogger;
+  warnedSet: Set<string>;
+  persistKey: string;
+  workspaceState: vscode.Memento | undefined;
+  fieldName: string;
+  invalidValue: string;
+  validValues: string;
+  fallbackDescription: string;
+}): boolean {
+  if (params.warnedSet.has(params.invalidValue)) {
+    return false;
+  }
+
+  params.warnedSet.add(params.invalidValue);
+  persistWarnedSet(params.workspaceState, params.persistKey, params.warnedSet);
+  params.logger.warn(
+    `NanoGPT ${params.fieldName} '${params.invalidValue}' is not one of ${params.validValues}; falling back to ${params.fallbackDescription}`,
+  );
+  return true;
+}
