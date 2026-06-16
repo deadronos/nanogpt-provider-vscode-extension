@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ## 0.0.21
 
+- Extended the invalid-value `*WithStatus` pattern from `reasoningEffort` to `reasoningOutput` and `toolCallingStrategy` so configuration typos in those fields also surface a one-time deduplicated warning in the output log instead of silently falling back to their defaults.
+- Persisted the `warnedInvalidReasoningEfforts`, `warnedInvalidReasoningOutputs`, and `warnedInvalidToolCallingStrategies` dedup sets to `vscode.ExtensionContext.workspaceState` so users who reload the extension window are not warned again for the same configuration typo.
+- Added an optional logger parameter to `prepareChatRequest()` so oversized inline image drops (>10 MiB) emit a single warning with the count, total bytes, and message role instead of silently discarding parts.
+- Added `parseProviderConfiguration()` — a runtime type-narrower that validates the shape of the raw provider configuration payload at the boundary and returns a typed `ProviderConfiguration` or `undefined` on structural mismatch.
 - Fixed the language-model provider configuration schema to remove unsupported enum-label metadata from the manifest and runtime configuration schema, which resolves the VS Code strict-schema validation warning that was blocking provider registration.
 - Unified the native-turn buffering strategy so `native` and `auto` tool-calling modes share the same buffer path. The previous separate `deferredTextParts`/`bufferedNativeParts` paths were mutually exclusive by design but difficult to scan — they now flow through a single `shouldBufferNativeTurn` guard with a shared `emitParts` helper.
 - Wired bridge-turn stream part counts (`summary`) through `NanoGptChatStreamResult` so bridge and retry turns surface the same per-turn telemetry fidelity as native turns in the output log.

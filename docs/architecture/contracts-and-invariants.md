@@ -138,18 +138,10 @@ May log:
 
 There are exactly two supported routing modes today:
 
-- `subscription`
-- `paygo`
 
 Endpoint mapping:
 
 - `subscription` -> `/api/subscription/v1`
-- `paygo` -> `/api/v1`
-
-`X-Provider` is only sent for `paygo` and only when `provider.trim()` is non-empty.
-
-## 7. Reasoning Contract
-
 `reasoningEffort: "auto"` is not sent to NanoGPT.
 
 Invariant:
@@ -157,12 +149,8 @@ Invariant:
 - `auto` is a local sentinel meaning omit the field
 
 Supported transmitted effort values:
-
-- `none`
-- `minimal`
-- `low`
-- `medium`
 - `high`
+
 - `xhigh`
 
 When a configured value is non-empty, not `"auto"`, and not one of the six valid levels, the extension logs a one-time deduplicated warning per invalid value (keyed on the provider instance lifetime) and falls back to the model default by omitting `reasoning_effort` from the request.
@@ -245,6 +233,18 @@ Persisted cache contract:
 - persisted cache failures (read or write) are logged at warn level and never thrown into the discovery path
 - configuration changes to `nanogpt.apiKey`, `nanogpt.routingMode`, or `nanogpt.models` clear both the in-memory and persisted caches
 
+### Persisted warning dedup sets (cross-reload)
+
+Invalid-value warning dedup sets (`warnedInvalidReasoningEfforts`, `warnedInvalidReasoningOutputs`, `warnedInvalidToolCallingStrategies`) are persisted to `context.workspaceState` so that a user who reloads the extension window is not re-warned for the same configuration typo. Hydration happens in `hydrateWarnedSets()` during construction; persistence is fire-and-forget via `persistWarnedSet()` when a new invalid value is encountered.
+
+Persisted warning contract:
+
+- keys: `nanogpt.warnedInvalidReasoningEfforts`, `nanogpt.warnedInvalidReasoningOutputs`, `nanogpt.warnedInvalidToolCallingStrategies`
+- values: `string[]` (the deduplicated set of invalid configured values encountered)
+- read failures are silently ignored and the in-memory Set is simply empty
+- write failures are silently caught and ignored (the warning has already been logged to the output channel)
+- the Sets are never cleared by the provider — they accumulate over the extension lifetime and across reloads; users who fix the typo will simply never see the warning again
+
 ## 11. Testing Contract
 
 Current automated test split:
@@ -275,7 +275,7 @@ When changing this repository, verify all relevant items below.
 
 - If you add or change provider config fields, update:
   - `src/nanogpt.ts` (type + schema)
-  - `src/config.ts` (validator — note: `getReasoningEffort` delegates to `getReasoningEffortWithStatus` for invalid-value tracking)
+  - `src/config.ts` (validator — note: `getReasoningEffort` delegates to `getReasoningEffortWithStatus`, `getReasoningOutput` delegates to `getReasoningOutputWithStatus`, `getToolCallingStrategy` delegates to `getToolCallingStrategyWithStatus`; all three `*WithStatus` variants return `{ value, invalidValue? }` for invalid-value tracking and warning deduplication)
   - `package.json` (contribution schema)
   - tests
 - If you change tool-calling strategy or bridge behavior, update:
