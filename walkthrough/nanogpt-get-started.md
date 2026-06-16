@@ -18,6 +18,8 @@ Open Copilot Chat and click the model picker at the top of the panel. NanoGPT-di
 
 If no models appear yet, the picker falls back to a small default catalogue so you can still send a test message while discovery runs in the background.
 
+> **Note:** Fallback catalogue entries advertise **pessimistic capabilities** (no image input, no tool calling, no reasoning) because real capabilities come from the NanoGPT discovery API. Once you save an API key and discovery succeeds, entries are replaced with accurate capability metadata. If a fallback model shows no tool support in the picker, that is expected until discovery runs.
+
 ## 3. Tune NanoGPT per-model settings
 
 Each NanoGPT model exposes a per-model configuration panel with:
@@ -46,13 +48,3 @@ If something goes wrong, you can wipe the extension state in one command:
 > Run **NanoGPT: Reset Saved Configuration** from the command palette.
 
 After the reset, VS Code offers a follow-up menu to re-enter the API key or jump to the model picker.
-
-## 4. Verify a chat round-trip
-
-Send a short message through Copilot Chat using a NanoGPT model. The Output panel (`NanoGPT`) shows a structured log line for the chat request with the chosen model id, routing mode, and duration.
-
-If something looks wrong, enable **NanoGPT: Verbose Logging** in workspace settings to surface debug-level lifecycle events.
-
-## 5. Reset NanoGPT (if you get stuck)
-
-Run **NanoGPT: Reset Saved Configuration** to wipe the saved API key, all `nanogpt.*` settings at every scope, and the cached model list. After the reset completes, VS Code offers a follow-up menu to either re-enter the API key or jump straight to the model picker.

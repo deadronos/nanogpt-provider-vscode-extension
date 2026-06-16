@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.21
+
+- Unified the native-turn buffering strategy so `native` and `auto` tool-calling modes share the same buffer path. The previous separate `deferredTextParts`/`bufferedNativeParts` paths were mutually exclusive by design but difficult to scan — they now flow through a single `shouldBufferNativeTurn` guard with a shared `emitParts` helper.
+- Wired bridge-turn stream part counts (`summary`) through `NanoGptChatStreamResult` so bridge and retry turns surface the same per-turn telemetry fidelity as native turns in the output log.
+- Buffered bridge-turn reasoning until the final committed turn instead of streaming reasoning live on every attempt. This prevents reasoning from a discarded repair-retry turn from leaking to the user when `reasoningOutput` is `native` or `visible`.
+- Surfaced a one-time deduplicated warning in the output log when `reasoningEffort` is configured to a non-empty, non-`auto` value that is not one of the six valid NanoGPT effort levels (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`).
+- Changed the missing-API-key error to use `LanguageModelError.NotFound()` so consumers can distinguish a credential failure from a generic transport error via the error `code` property.
+- Clarified the scaffolding-suppression heuristic, the year-strip risk in the family-token regex, and the capability-pessimistic fallback catalogue in doc comments and the walkthrough guide.
+
 ## 0.0.20
 
 - Refreshed the extension dev-tooling stack to the currently published versions available from npm, including newer `@types/node`, `vitest`, and `@vitest/coverage-v8` updates while keeping the VS Code API typings and packaging tooling aligned with the current published release line.

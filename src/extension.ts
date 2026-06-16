@@ -5,7 +5,7 @@ import {
   DEFAULT_MODELS,
   getModelAllowlist,
   getProvider,
-  getReasoningEffort,
+  getReasoningEffortWithStatus,
   getReasoningOutput,
   getRoutingMode,
   getToolCallingStrategy,
@@ -179,6 +179,14 @@ function deriveFamilyTokensFromAllowlist(allowlist: readonly string[]): string[]
     }
     // Strip trailing size/quantization markers such as `-mini`, `-pro`,
     // `-32k`, `-instruct`, `-chat`, `-base`, `-preview`.
+    //
+    // NOTE: The `\d{4,5}` alternative will also strip a 4-digit year suffix
+    // (e.g. `gpt-2024` -> `gpt`). This is acceptable for discovery-cache
+    // partitioning because the cache is keyed on tokenizer family, not on
+    // exact identity, and year-suffixed OpenAI ids are not currently part of
+    // the NanoGPT catalogue. If a year-suffixed model family needs distinct
+    // cache partitioning in the future, tighten this alternative to only
+    // match quantization-style numeric suffixes (e.g. `-\d{1,2}b`).
     const stripped = id.replace(
       /[-_.](mini|pro|max|nano|tiny|small|medium|large|xlarge|xxl|instruct|chat|base|preview|preview-\d+|\d+[kmb](?:-context)?|\d{4,5})$/i,
       "",
@@ -320,6 +328,12 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
   private readonly modelCache = new Map<string, VscodeModelMetadata[]>();
   private readonly modelChangeEmitter = new vscode.EventEmitter<void>();
   private nextRequestNumber = 0;
+  /**
+   * Tracks invalid `reasoningEffort` values already warned about so a typo
+   * does not spam the output log on every chat turn. Cleared implicitly on
+   * extension reload.
+   */
+  private readonly warnedInvalidReasoningEfforts = new Set<string>();
   readonly onDidChangeLanguageModelChatInformation = this.modelChangeEmitter.event;
   private static readonly onboardingWarningMessage =
     "NanoGPT API key is required to discover models. You can manage provider settings or enter a key directly.";
@@ -647,11 +661,28 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     const apiKey = await resolveApiKey(this.context, options.configuration);
     if (!apiKey) {
       this.logger.warn(`[${requestId}] chat request blocked: API key is not configured`);
-      throw new vscode.LanguageModelError("NanoGPT API key is not configured");
+      // Use the NotFound factory so downstream consumers can distinguish a
+      // missing-credential failure (code "NotFound") from a generic transport
+      // error (code "Unknown") via `LanguageModelError.code`.
+      throw vscode.LanguageModelError.NotFound("NanoGPT API key is not configured");
     }
 
     const reasoningOutput = getReasoningOutput(options.configuration, options.modelOptions);
-    const reasoningEffort = getReasoningEffort(options.configuration, options.modelOptions);
+    const reasoningEffortResolution = getReasoningEffortWithStatus(
+      options.configuration,
+      options.modelOptions,
+    );
+    const reasoningEffort = reasoningEffortResolution.value;
+    if (reasoningEffortResolution.invalidValue) {
+      const invalidValue = reasoningEffortResolution.invalidValue;
+      if (!this.warnedInvalidReasoningEfforts.has(invalidValue)) {
+        this.warnedInvalidReasoningEfforts.add(invalidValue);
+        const validValues = "none, minimal, low, medium, high, xhigh";
+        this.logger.warn(
+          `NanoGPT reasoningEffort '${invalidValue}' is not one of ${validValues} (or 'auto'); falling back to the model default`,
+        );
+      }
+    }
     const toolCallingStrategy = getToolCallingStrategy(options.configuration, options.modelOptions);
     const routingMode = getRoutingMode(options.configuration);
     const provider = getProvider(options.configuration);
@@ -756,6 +787,15 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
         bridgeRequiredFailClosed: 0,
         ...rawBridgeTelemetry,
       };
+      const streamSummary =
+        typeof result?.summary === "object" && result.summary !== null
+          ? result.summary
+          : {
+              chunkCount: 0,
+              textPartCount: responseSummary.textDeltas,
+              reasoningPartCount: responseSummary.reasoningDeltas,
+              toolCallCount: responseSummary.toolCalls,
+            };
 
       this.logger.info(
         `[${requestId}] chat request completed (${formatKeyValuePairs({
@@ -769,6 +809,10 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
         `[${requestId}] chat request result details (${formatKeyValuePairs({
           textChars: responseSummary.textChars,
           reasoningChars: responseSummary.reasoningChars,
+          streamChunks: streamSummary.chunkCount,
+          streamTextParts: streamSummary.textPartCount,
+          streamReasoningParts: streamSummary.reasoningPartCount,
+          streamToolCalls: streamSummary.toolCallCount,
           bridgeRepairAttempts: bridgeTelemetry.bridgeRepairAttempts,
           bridgeRepairSuccesses: bridgeTelemetry.bridgeRepairSuccesses,
           bridgeRawTextFallbacks: bridgeTelemetry.bridgeRawTextFallbacks,

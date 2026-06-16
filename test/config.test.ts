@@ -12,7 +12,7 @@ vi.mock("vscode", () => ({
   },
 }));
 
-import { getModelAllowlist, getToolCallingStrategy, resolveApiKey } from "../src/config.js";
+import { getModelAllowlist, getReasoningEffortWithStatus, getToolCallingStrategy, resolveApiKey } from "../src/config.js";
 
 describe("NanoGPT config — API key resolution", () => {
   const originalNanoGptApiKey = process.env.NANOGPT_API_KEY;
@@ -96,5 +96,52 @@ describe("NanoGPT config — tool calling strategy resolver", () => {
     });
 
     expect(result).toEqual(["gpt-5.4-mini"]);
+  });
+});
+
+describe("NanoGPT config — reasoning effort resolver", () => {
+  beforeEach(() => {
+    mockGetConfiguration.mockClear();
+    mockGetConfiguration.mockImplementation(() => ({
+      get: vi.fn((_key: string, defaultValue: unknown) => defaultValue),
+    }));
+  });
+
+  test("returns undefined value for the auto sentinel", () => {
+    expect(getReasoningEffortWithStatus({ reasoningEffort: "auto" })).toEqual({
+      value: undefined,
+    });
+  });
+
+  test("returns undefined value and no invalidValue for valid effort levels", () => {
+    for (const effort of ["none", "minimal", "low", "medium", "high", "xhigh"] as const) {
+      expect(getReasoningEffortWithStatus({ reasoningEffort: effort })).toEqual({
+        value: effort,
+      });
+    }
+  });
+
+  test("flags a typo as invalid and returns undefined value", () => {
+    expect(getReasoningEffortWithStatus({ reasoningEffort: "hihg" })).toEqual({
+      value: undefined,
+      invalidValue: "hihg",
+    });
+  });
+
+  test("flags an unrecognized non-empty value as invalid", () => {
+    expect(getReasoningEffortWithStatus({ reasoningEffort: "turbo" })).toEqual({
+      value: undefined,
+      invalidValue: "turbo",
+    });
+  });
+
+  test("reads from workspace settings when no provider config is set", () => {
+    mockGetConfiguration.mockImplementation(() => ({
+      get: vi.fn((key: string, defaultValue: unknown) =>
+        key === "reasoningEffort" ? "medium" : defaultValue,
+      ),
+    }));
+
+    expect(getReasoningEffortWithStatus(undefined)).toEqual({ value: "medium" });
   });
 });

@@ -63,6 +63,14 @@ export type NanoGptBridgeTelemetry = {
 export type NanoGptChatStreamResult = {
   bridgeTelemetry: NanoGptBridgeTelemetry;
   requiredToolWarning?: string;
+  /**
+   * Aggregate part counts from the turn that produced the user-visible
+   * response. For native turns this is the native stream summary; for
+   * bridge turns (including `auto` retries) it is the final bridge
+   * turn's summary. Exposed so the caller can log bridge-turn part
+   * counts with the same fidelity as native turns.
+   */
+  summary: StreamProcessingSummary;
 };
 
 type StreamProcessingSummary = {
@@ -79,6 +87,14 @@ type BridgeTurnResult = {
   bridgeText: string;
   parsed: ReturnType<typeof parseToolCallingBridgeResponse>;
   requestId: string;
+  /**
+   * Reasoning deltas accumulated during this bridge turn. Buffered rather
+   * than streamed live so that reasoning from a non-final turn that gets
+   * discarded (e.g. a malformed first reply that triggers a repair retry)
+   * does not leak to the user. Only the final committed turn's reasoning
+   * is emitted by {@link NanoGptClient.streamChatCompletionsViaBridge}.
+   */
+  reasoningChunks: string[];
 };
 
 function createEmptyBridgeTelemetry(): NanoGptBridgeTelemetry {
@@ -100,6 +116,11 @@ function isLikelyToolScaffoldingText(text: string): boolean {
     return false;
   }
 
+  // NOTE: Sentence splitting on `[.!?]` is English-centric. In languages
+  // where these characters are rare sentence terminators (e.g. CJK), the
+  // count may undercount and a longer preamble can slip through. The 240-char
+  // cap above is the backstop. This is an intentional best-effort heuristic;
+  // false negatives only mean a preamble is emitted verbatim, not a crash.
   const sentenceCount = normalized
     .split(/[.!?]+/)
     .map((sentence) => sentence.trim())
@@ -117,6 +138,9 @@ function isLikelyToolScaffoldingText(text: string): boolean {
       normalized,
     );
 
+  // A preamble that both opens with a scaffolding phrase AND references an
+  // inspection verb is treated as low-signal scaffolding. Requiring both
+  // signals reduces false positives on substantive short answers.
   return startsLikeScaffolding && hasInspectionVerb;
 }
 
@@ -315,14 +339,21 @@ export class NanoGptClient {
     try {
       const toolCallingStrategy = params.toolCallingStrategy ?? "native";
       const hasTools = Boolean(params.tools?.length);
-      const shouldBufferNativeTurn = toolCallingStrategy === "auto" && hasTools;
-      // In native mode with tools, buffer text/reasoning so we can suppress
-      // thin scaffolding preambles (e.g. "Let me gather related files..") that
-      // appear before tool calls.  Such text can trigger VS Code's Copilot Chat
-      // loop-detection guard on BYOK providers, causing the request to stall.
-      const shouldDeferText = toolCallingStrategy === "native" && hasTools;
+      // When tools are present in `native` or `auto` mode, buffer the entire
+      // native turn before emitting anything. This serves two purposes:
+      //  - `auto`: the buffered turn can be inspected and, if it produced no
+      //    tool calls and only low-signal scaffolding text, retried once via
+      //    the bridge path without the scaffolding leaking to the user.
+      //  - `native`: thin scaffolding preambles (e.g. "Let me gather related
+      //    files..") that precede real tool calls can be suppressed so they
+      //    do not trigger VS Code's Copilot Chat loop-detection guard on BYOK
+      //    streams.
+      // In `bridge` mode the native stream is never started; the bridge path
+      // owns emission. In tool-less turns nothing is buffered and parts are
+      // emitted directly for lowest latency.
+      const shouldBufferNativeTurn =
+        hasTools && (toolCallingStrategy === "auto" || toolCallingStrategy === "native");
       const bufferedNativeParts: NanoGptResponsePart[] = [];
-      const deferredTextParts: NanoGptResponsePart[] = [];
 
       if (toolCallingStrategy === "bridge" && hasTools) {
         const bridgeResult = await this.streamChatCompletionsViaBridge({
@@ -333,6 +364,7 @@ export class NanoGptClient {
         return {
           bridgeTelemetry: bridgeResult.bridgeTelemetry,
           requiredToolWarning: bridgeResult.requiredToolWarning,
+          summary: bridgeResult.summary,
         };
       }
 
@@ -342,14 +374,10 @@ export class NanoGptClient {
         requestId,
         onText: shouldBufferNativeTurn
           ? (text) => bufferedNativeParts.push({ type: "text", text })
-          : shouldDeferText
-            ? (text) => deferredTextParts.push({ type: "text", text })
-            : params.onText,
+          : params.onText,
         onReasoning: shouldBufferNativeTurn
           ? (text) => bufferedNativeParts.push({ type: "reasoning", text })
-          : shouldDeferText
-            ? (text) => deferredTextParts.push({ type: "reasoning", text })
-            : params.onReasoning,
+          : params.onReasoning,
         onToolCall: shouldBufferNativeTurn
           ? (toolCall) => bufferedNativeParts.push(toolCall)
           : params.onToolCall,
@@ -378,28 +406,36 @@ export class NanoGptClient {
         return {
           bridgeTelemetry: bridgeResult.bridgeTelemetry,
           requiredToolWarning: bridgeResult.requiredToolWarning,
+          summary: bridgeResult.summary,
         };
       }
 
-      // Suppress thin scaffolding text when the model also returned tool calls.
-      // The preamble (e.g. "Let me check the files..") adds no value and can
-      // trigger VS Code's Copilot Chat loop-detection guard on BYOK streams.
-      if (shouldDeferText && deferredTextParts.length > 0) {
-        const deferredText = collectTextParts(deferredTextParts);
-        if (nativeSummary.toolCallCount > 0 && isLikelyToolScaffoldingText(deferredText)) {
+      // In native mode with tools, suppress thin scaffolding text that
+      // appeared before tool calls. The preamble (e.g. "Let me check the
+      // files..") adds no value and can trigger VS Code's Copilot Chat
+      // loop-detection guard on BYOK streams.
+      if (shouldBufferNativeTurn) {
+        const hasToolCalls = nativeSummary.toolCallCount > 0;
+        const shouldSuppressScaffolding =
+          hasToolCalls &&
+          isLikelyToolScaffoldingText(collectTextParts(bufferedNativeParts));
+        if (shouldSuppressScaffolding) {
           this.logger.info(
-            `[${requestId}] suppressed scaffolding text before tool calls (${formatKeyValuePairs({ chars: deferredText.length })})`,
+            `[${requestId}] suppressed scaffolding text before tool calls (${formatKeyValuePairs({
+              chars: collectTextParts(bufferedNativeParts).length,
+            })})`,
+          );
+          // Emit only the tool calls (and any reasoning), drop the scaffolding text.
+          this.emitParts(
+            bufferedNativeParts.filter((part) => part.type !== "text"),
+            params,
           );
         } else {
-          this.emitParts(deferredTextParts, params);
+          this.emitParts(bufferedNativeParts, params);
         }
       }
 
-      if (shouldBufferNativeTurn) {
-        this.emitParts(bufferedNativeParts, params);
-      }
-
-      return { bridgeTelemetry: createEmptyBridgeTelemetry() };
+      return { bridgeTelemetry: createEmptyBridgeTelemetry(), summary: nativeSummary };
     } finally {
       timeoutSignal.dispose();
     }
@@ -460,7 +496,11 @@ export class NanoGptClient {
     onText: (text: string) => void;
     onReasoning?: (text: string) => void;
     onToolCall?: (toolCall: Extract<NanoGptResponsePart, { type: "tool_call" }>) => void;
-  }): Promise<{ summary: StreamProcessingSummary; bridgeTelemetry: NanoGptBridgeTelemetry; requiredToolWarning?: string }> {
+  }): Promise<{
+    bridgeTelemetry: NanoGptBridgeTelemetry;
+    requiredToolWarning?: string;
+    summary: StreamProcessingSummary;
+  }> {
     const tools = params.tools ?? [];
     const bridgeMessages = buildToolCallingBridgeMessages({
       messages: params.messages,
@@ -503,6 +543,7 @@ export class NanoGptClient {
     }
 
     if (turn.parsed.kind === "tool_calls") {
+      this.emitBridgeReasoning(turn.reasoningChunks, params);
       if (turn.parsed.content) {
         params.onText(turn.parsed.content);
       }
@@ -532,6 +573,7 @@ export class NanoGptClient {
     }
 
     if (turn.parsed.kind === "final") {
+      this.emitBridgeReasoning(turn.reasoningChunks, params);
       params.onText(turn.parsed.content);
       return { summary: turn.summary, bridgeTelemetry };
     }
@@ -542,6 +584,7 @@ export class NanoGptClient {
         `[${turn.requestId}] tool-calling bridge response omitted JSON; falling back to raw text`,
       );
       bridgeTelemetry.bridgeRawTextFallbacks += 1;
+      this.emitBridgeReasoning(turn.reasoningChunks, params);
       params.onText(BRIDGE_RAW_TEXT_FALLBACK_PREFIX + fallbackBridgeText);
       return { summary: turn.summary, bridgeTelemetry };
     }
@@ -564,9 +607,9 @@ export class NanoGptClient {
     reasoningOutput?: NanoGptReasoningOutput;
     signal?: AbortSignal;
     requestId: string;
-    onReasoning?: (text: string) => void;
   }): Promise<BridgeTurnResult> {
     let bridgeText = "";
+    const reasoningChunks: string[] = [];
 
     const summary = await this.executeStreamingRequest({
       request: buildNanoGptChatCompletionRequest({
@@ -583,7 +626,12 @@ export class NanoGptClient {
       signal: params.signal,
       onPart: (part) => {
         if (part.type === "reasoning") {
-          params.onReasoning?.(part.text);
+          // Buffer reasoning instead of streaming it live. A non-final
+          // bridge turn (e.g. a malformed first reply that triggers a
+          // repair retry) may be discarded; emitting its reasoning would
+          // leak intermediate model thoughts to the user. The committed
+          // turn's buffered reasoning is emitted by the caller.
+          reasoningChunks.push(part.text);
         } else if (part.type === "text") {
           bridgeText += part.text;
         }
@@ -595,7 +643,26 @@ export class NanoGptClient {
       bridgeText,
       parsed: parseToolCallingBridgeResponse(bridgeText, params.tools),
       requestId: params.requestId,
+      reasoningChunks,
     };
+  }
+
+  /**
+   * Emits buffered bridge-turn reasoning to the caller's `onReasoning`
+   * callback. Only invoked once per request, on the final committed
+   * bridge turn, so reasoning from discarded repair-retry turns does
+   * not leak. No-op when no reasoning was buffered.
+   */
+  private emitBridgeReasoning(
+    reasoningChunks: readonly string[],
+    params: { onReasoning?: (text: string) => void },
+  ): void {
+    if (!params.onReasoning || reasoningChunks.length === 0) {
+      return;
+    }
+    for (const chunk of reasoningChunks) {
+      params.onReasoning(chunk);
+    }
   }
 
   private async executeStreamingRequest(params: {

@@ -202,6 +202,33 @@ export function getReasoningEffort(
   providerConfiguration?: ProviderConfiguration,
   modelOptions?: { readonly [name: string]: unknown },
 ): NanoGptReasoningEffort | undefined {
+  return getReasoningEffortWithStatus(providerConfiguration, modelOptions).value;
+}
+
+/**
+ * Internal resolution result used to surface configuration typos. The
+ * `invalidValue` field is set only when the user configured a non-empty,
+ * non-`auto` value that is not one of the six valid NanoGPT effort levels.
+ * Callers that have a logger should warn once per invalid value.
+ */
+type ReasoningEffortResolution = {
+  value: NanoGptReasoningEffort | undefined;
+  invalidValue?: string;
+};
+
+const VALID_REASONING_EFFORTS: readonly NanoGptReasoningEffort[] = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+];
+
+export function getReasoningEffortWithStatus(
+  providerConfiguration?: ProviderConfiguration,
+  modelOptions?: { readonly [name: string]: unknown },
+): ReasoningEffortResolution {
   const value =
     typeof modelOptions?.reasoningEffort === "string"
       ? modelOptions.reasoningEffort
@@ -209,22 +236,15 @@ export function getReasoningEffort(
         ? providerConfiguration.reasoningEffort
         : getConfig().get<string>("reasoningEffort", "auto");
 
-  const validEfforts: NanoGptReasoningEffort[] = [
-    "none",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-  ];
-
   if (value === "auto" || value === undefined) {
-    return undefined;
+    return { value: undefined };
   }
 
-  return validEfforts.includes(value as NanoGptReasoningEffort)
-    ? (value as NanoGptReasoningEffort)
-    : undefined;
+  if (VALID_REASONING_EFFORTS.includes(value as NanoGptReasoningEffort)) {
+    return { value: value as NanoGptReasoningEffort };
+  }
+
+  return { value: undefined, invalidValue: String(value) };
 }
 
 /**
