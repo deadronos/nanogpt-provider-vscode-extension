@@ -256,6 +256,24 @@ export function getReasoningOutput(
   providerConfiguration?: ProviderConfiguration,
   modelOptions?: { readonly [name: string]: unknown },
 ): NanoGptReasoningOutput {
+  return getReasoningOutputWithStatus(providerConfiguration, modelOptions).value;
+}
+
+type ReasoningOutputResolution = {
+  value: NanoGptReasoningOutput;
+  invalidValue?: string;
+};
+
+const VALID_REASONING_OUTPUTS: readonly NanoGptReasoningOutput[] = [
+  "hidden",
+  "visible",
+  "native",
+];
+
+export function getReasoningOutputWithStatus(
+  providerConfiguration?: ProviderConfiguration,
+  modelOptions?: { readonly [name: string]: unknown },
+): ReasoningOutputResolution {
   const value =
     typeof modelOptions?.reasoningOutput === "string"
       ? modelOptions.reasoningOutput
@@ -263,7 +281,11 @@ export function getReasoningOutput(
         ? providerConfiguration.reasoningOutput
         : getConfig().get<string>("reasoningOutput", "native");
 
-  return value === "hidden" || value === "visible" || value === "native" ? value : "native";
+  if (VALID_REASONING_OUTPUTS.includes(value as NanoGptReasoningOutput)) {
+    return { value: value as NanoGptReasoningOutput };
+  }
+
+  return { value: "native", invalidValue: typeof value === "string" && value ? value : String(value) };
 }
 
 /**
@@ -274,6 +296,24 @@ export function getToolCallingStrategy(
   providerConfiguration?: ProviderConfiguration,
   modelOptions?: { readonly [name: string]: unknown },
 ): NanoGptToolCallingStrategy {
+  return getToolCallingStrategyWithStatus(providerConfiguration, modelOptions).value;
+}
+
+type ToolCallingStrategyResolution = {
+  value: NanoGptToolCallingStrategy;
+  invalidValue?: string;
+};
+
+const VALID_TOOL_CALLING_STRATEGIES: readonly NanoGptToolCallingStrategy[] = [
+  "native",
+  "auto",
+  "bridge",
+];
+
+export function getToolCallingStrategyWithStatus(
+  providerConfiguration?: ProviderConfiguration,
+  modelOptions?: { readonly [name: string]: unknown },
+): ToolCallingStrategyResolution {
   const value =
     typeof modelOptions?.toolCallingStrategy === "string"
       ? modelOptions.toolCallingStrategy
@@ -281,7 +321,58 @@ export function getToolCallingStrategy(
           ? providerConfiguration.toolCallingStrategy
           : getConfig().get<string>("toolCallingStrategy", "native");
 
-  return value === "auto" || value === "bridge" || value === "native" ? value : "native";
+  if (VALID_TOOL_CALLING_STRATEGIES.includes(value as NanoGptToolCallingStrategy)) {
+    return { value: value as NanoGptToolCallingStrategy };
+  }
+
+  return { value: "native", invalidValue: typeof value === "string" && value ? value : String(value) };
+}
+
+/**
+ * Runtime type-narrower for the VS Code provider configuration payload.
+ * Returns a typed {@link ProviderConfiguration} when every present field
+ * has the expected type; returns `undefined` when the payload is
+ * structurally invalid (e.g. `models` is not an array, `routingMode` is
+ * a number).  Absent fields are simply omitted from the result.
+ *
+ * Call this at the boundary where VS Code hands the extension a raw
+ * provider configuration object so that downstream resolvers receive a
+ * validated shape.  A `undefined` return means the caller should treat
+ * the payload as if no provider configuration was supplied and log a
+ * warning.
+ */
+export function parseProviderConfiguration(
+  input: unknown,
+): ProviderConfiguration | undefined {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return undefined;
+  }
+
+  const raw = input as Record<string, unknown>;
+  const result: ProviderConfiguration = {};
+
+  for (const key of ["apiKey", "routingMode", "provider", "reasoningEffort", "reasoningOutput", "toolCallingStrategy"] as const) {
+    const value = raw[key];
+    if (value === undefined) {
+      continue;
+    }
+    if (typeof value !== "string") {
+      return undefined;
+    }
+    result[key] = value;
+  }
+
+  if ("models" in raw) {
+    const models = raw.models;
+    if (models !== undefined) {
+      if (!Array.isArray(models)) {
+        return undefined;
+      }
+      result.models = models as unknown[];
+    }
+  }
+
+  return result;
 }
 
 /**

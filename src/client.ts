@@ -463,7 +463,7 @@ export class NanoGptClient {
       request: buildNanoGptChatCompletionRequest({
         apiKey: params.apiKey,
         modelId: params.modelId,
-        messages: prepareChatRequest(params.messages),
+          messages: prepareChatRequest(params.messages, this.logger),
         routingMode: params.routingMode,
         provider: params.provider,
         maxTokens: params.maxTokens,

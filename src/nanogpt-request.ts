@@ -19,6 +19,11 @@ import { toNanoGptTools } from "./nanogpt-message.js";
  */
 const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MiB
 
+/** Minimal logger contract so callers can thread their own logger through. */
+export type PrepareChatRequestLogger = {
+  warn(message: string): void;
+};
+
 /**
  * Internal request-preparation hook that normalises the message array
  * before it is serialised for NanoGPT. This is the extension-local
@@ -37,7 +42,10 @@ const MAX_INLINE_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MiB
  * regardless of whether the hook is called by VS Code or by the
  * extension itself.
  */
-export function prepareChatRequest(messages: readonly NanoGptChatMessage[]): NanoGptChatMessage[] {
+export function prepareChatRequest(
+  messages: readonly NanoGptChatMessage[],
+  logger?: PrepareChatRequestLogger,
+): NanoGptChatMessage[] {
   const result: NanoGptChatMessage[] = [];
 
   for (const message of messages) {
@@ -52,6 +60,9 @@ export function prepareChatRequest(messages: readonly NanoGptChatMessage[]): Nan
       continue;
     }
 
+    let droppedImageCount = 0;
+    let droppedImageBytes = 0;
+
     const filteredParts = message.content.filter((part) => {
       if (typeof part === "object" && part !== null && part.type === "image_url") {
         const url = (part as { image_url?: { url?: string } }).image_url?.url;
@@ -62,6 +73,8 @@ export function prepareChatRequest(messages: readonly NanoGptChatMessage[]): Nan
             const base64Payload = url.slice(base64Start + 1);
             const byteLength = Math.floor((base64Payload.length * 3) / 4);
             if (byteLength > MAX_INLINE_IMAGE_BYTES) {
+              droppedImageCount += 1;
+              droppedImageBytes += byteLength;
               return false;
             }
           }
@@ -69,6 +82,12 @@ export function prepareChatRequest(messages: readonly NanoGptChatMessage[]): Nan
       }
       return true;
     });
+
+    if (droppedImageCount > 0 && logger) {
+      logger.warn(
+        `NanoGPT prepareChatRequest dropped ${droppedImageCount} oversized inline image(s) (total approx bytes=${droppedImageBytes}, role=${message.role})`,
+      );
+    }
 
     result.push(filteredParts.length === message.content.length
       ? message

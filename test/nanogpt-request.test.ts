@@ -269,4 +269,37 @@ describe("nanogpt-request: prepareChatRequest", () => {
     expect(result).toHaveLength(4);
     expect(result).toEqual(messages);
   });
+
+  test("logs a warning when oversized inline images are dropped", () => {
+    const warnCalls: string[] = [];
+    const logger = { warn: (msg: string) => warnCalls.push(msg) };
+    const oversizedBase64 = "data:image/png;base64," + "A".repeat(15_000_000);
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: "Look at this" },
+          { type: "image_url" as const, image_url: { url: oversizedBase64 } },
+        ] as NanoGptChatMessage["content"],
+      },
+    ];
+    const result = prepareChatRequest(messages as unknown as NanoGptChatMessage[], logger);
+    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls[0]).toContain("dropped 1 oversized inline image");
+    expect(warnCalls[0]).toContain("role=user");
+
+    const parts = result[0]!.content as Array<{ type: string }>;
+    expect(parts.filter((p) => p.type === "image_url")).toHaveLength(0);
+    expect(parts.filter((p) => p.type === "text")).toHaveLength(1);
+  });
+
+  test("does not log when no images are dropped", () => {
+    const warnCalls: string[] = [];
+    const logger = { warn: (msg: string) => warnCalls.push(msg) };
+    const messages: NanoGptChatMessage[] = [
+      { role: "user", content: "Hello" },
+    ];
+    prepareChatRequest(messages, logger);
+    expect(warnCalls).toHaveLength(0);
+  });
 });

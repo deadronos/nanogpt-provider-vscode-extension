@@ -7,8 +7,10 @@ import {
   getProvider,
   getReasoningEffortWithStatus,
   getReasoningOutput,
+    getReasoningOutputWithStatus,
   getRoutingMode,
   getToolCallingStrategy,
+    getToolCallingStrategyWithStatus,
   isVerboseLoggingEnabled,
   resolveApiKey,
   SECRET_KEY,
@@ -22,6 +24,9 @@ import { formatKeyValuePairs, formatRoleCounts, formatError, isObject, sha256Hex
 const VENDOR_ID = "nanogpt";
 const PERSISTED_MODEL_CACHE_KEY = "nanogpt.modelCache";
 const PERSISTED_MODEL_CACHE_VERSION = 1;
+const PERSISTED_INVALID_REASONING_EFFORTS_KEY = "nanogpt.warnedInvalidReasoningEfforts";
+const PERSISTED_INVALID_REASONING_OUTPUTS_KEY = "nanogpt.warnedInvalidReasoningOutputs";
+const PERSISTED_INVALID_TOOL_CALLING_STRATEGIES_KEY = "nanogpt.warnedInvalidToolCallingStrategies";
 const RESET_COMMAND_ID = "nanogpt.resetConfiguration";
 const RESET_CONFIRM_ACTION = "Reset NanoGPT";
 const RESET_MANAGE_API_KEY_ACTION = "Manage API Key";
@@ -334,6 +339,16 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
    * extension reload.
    */
   private readonly warnedInvalidReasoningEfforts = new Set<string>();
+    /**
+     * Tracks invalid `reasoningOutput` values already warned about.
+     * Persisted to `workspaceState` so the warning survives extension reloads.
+     */
+    private readonly warnedInvalidReasoningOutputs = new Set<string>();
+    /**
+     * Tracks invalid `toolCallingStrategy` values already warned about.
+     * Persisted to `workspaceState` so the warning survives extension reloads.
+     */
+    private readonly warnedInvalidToolCallingStrategies = new Set<string>();
   readonly onDidChangeLanguageModelChatInformation = this.modelChangeEmitter.event;
   private static readonly onboardingWarningMessage =
     "NanoGPT API key is required to discover models. You can manage provider settings or enter a key directly.";
@@ -350,6 +365,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     private readonly logger: NanoGptLogger,
   ) {
     this.hydrateModelCache();
+      this.hydrateWarnedSets();
   }
 
   /**
@@ -385,6 +401,55 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
         `[provider] failed to hydrate model cache from globalState: ${formatError(error)}`,
       );
     }
+  }
+
+  /**
+   * Restores the invalid-value warning dedup sets from
+   * {@link vscode.ExtensionContext.workspaceState} so that users who
+   * reload the extension window do not see the same configuration
+   * typo warning every time.
+   */
+  private hydrateWarnedSets(): void {
+    const workspaceState = this.context.workspaceState;
+    if (!workspaceState) {
+      return;
+    }
+
+    const hydrateSet = (key: string, target: Set<string>) => {
+      try {
+        const stored = workspaceState.get<string[]>(key);
+        if (Array.isArray(stored)) {
+          for (const value of stored) {
+            target.add(value);
+          }
+        }
+      } catch {
+        // best-effort; the Set will be repopulated on next invalid value
+      }
+    };
+
+    hydrateSet(PERSISTED_INVALID_REASONING_EFFORTS_KEY, this.warnedInvalidReasoningEfforts);
+    hydrateSet(PERSISTED_INVALID_REASONING_OUTPUTS_KEY, this.warnedInvalidReasoningOutputs);
+    hydrateSet(PERSISTED_INVALID_TOOL_CALLING_STRATEGIES_KEY, this.warnedInvalidToolCallingStrategies);
+  }
+
+  /**
+   * Persists an updated warned-values set to workspaceState. Fire-and-forget;
+   * failures are intentionally silent so chat throughput is never affected.
+   */
+  private persistWarnedSet(key: string, values: Set<string>): void {
+    const workspaceState = this.context.workspaceState;
+    if (!workspaceState) {
+      return;
+    }
+
+    (async () => {
+      try {
+        await workspaceState.update(key, [...values]);
+      } catch {
+        // best-effort; the warning has already been logged
+      }
+    })();
   }
 
   /**
@@ -667,7 +732,22 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
       throw vscode.LanguageModelError.NotFound("NanoGPT API key is not configured");
     }
 
-    const reasoningOutput = getReasoningOutput(options.configuration, options.modelOptions);
+    const reasoningOutputResolution = getReasoningOutputWithStatus(
+      options.configuration,
+      options.modelOptions,
+    );
+    const reasoningOutput = reasoningOutputResolution.value;
+    if (reasoningOutputResolution.invalidValue) {
+      const invalidValue = reasoningOutputResolution.invalidValue;
+      if (!this.warnedInvalidReasoningOutputs.has(invalidValue)) {
+        this.warnedInvalidReasoningOutputs.add(invalidValue);
+        this.persistWarnedSet(PERSISTED_INVALID_REASONING_OUTPUTS_KEY, this.warnedInvalidReasoningOutputs);
+        const validValues = "hidden, visible, native";
+        this.logger.warn(
+          `NanoGPT reasoningOutput '${invalidValue}' is not one of ${validValues}; falling back to native`,
+        );
+      }
+    }
     const reasoningEffortResolution = getReasoningEffortWithStatus(
       options.configuration,
       options.modelOptions,
@@ -677,13 +757,29 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
       const invalidValue = reasoningEffortResolution.invalidValue;
       if (!this.warnedInvalidReasoningEfforts.has(invalidValue)) {
         this.warnedInvalidReasoningEfforts.add(invalidValue);
+        this.persistWarnedSet(PERSISTED_INVALID_REASONING_EFFORTS_KEY, this.warnedInvalidReasoningEfforts);
         const validValues = "none, minimal, low, medium, high, xhigh";
         this.logger.warn(
           `NanoGPT reasoningEffort '${invalidValue}' is not one of ${validValues} (or 'auto'); falling back to the model default`,
         );
       }
     }
-    const toolCallingStrategy = getToolCallingStrategy(options.configuration, options.modelOptions);
+    const toolCallingStrategyResolution = getToolCallingStrategyWithStatus(
+      options.configuration,
+      options.modelOptions,
+    );
+    const toolCallingStrategy = toolCallingStrategyResolution.value;
+    if (toolCallingStrategyResolution.invalidValue) {
+      const invalidValue = toolCallingStrategyResolution.invalidValue;
+      if (!this.warnedInvalidToolCallingStrategies.has(invalidValue)) {
+        this.warnedInvalidToolCallingStrategies.add(invalidValue);
+        this.persistWarnedSet(PERSISTED_INVALID_TOOL_CALLING_STRATEGIES_KEY, this.warnedInvalidToolCallingStrategies);
+        const validValues = "native, auto, bridge";
+        this.logger.warn(
+          `NanoGPT toolCallingStrategy '${invalidValue}' is not one of ${validValues}; falling back to native`,
+        );
+      }
+    }
     const routingMode = getRoutingMode(options.configuration);
     const provider = getProvider(options.configuration);
     const toolMode =
