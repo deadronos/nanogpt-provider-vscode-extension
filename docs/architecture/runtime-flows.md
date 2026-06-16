@@ -118,7 +118,7 @@ Chat execution is exposed through `provideLanguageModelChatResponse()`.
 3. The client performs a streaming `POST`.
 4. The client reads the SSE body incrementally.
 5. SSE deltas are converted to typed response parts.
-6. In `native` mode with tools, thin scaffolding text (e.g. "Let me gather related files..") that precedes tool calls is suppressed from `progress.report()` to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams.
+6. In `native` and `auto` modes with tools, thin scaffolding text (e.g. "Let me gather related files..") that precedes tool calls is suppressed from `progress.report()` to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams. Both modes share a unified `shouldBufferNativeTurn` buffering path.
 7. In `auto`, a tool-enabled native turn that yields no tool calls and either no visible text or only likely scaffolding text is retried once with the bridge prompt.
 8. The provider maps those parts to VS Code response parts and reports them via `progress.report(...)`.
 
@@ -225,7 +225,7 @@ Bridge behavior:
 - assistant `tool_calls` history becomes assistant JSON text
 - `role: "tool"` history becomes user-visible tool-result text with an anti-repeat instruction
 - native `tools`, `tool_choice`, and `parallel_tool_calls` are omitted from the retried bridge request
-- malformed bridge replies get one JSON-only repair retry. If `toolMode: "required"` still omits usable tool calls after repair, the client returns `requiredToolWarning` and the provider emits it as a warning `LanguageModelTextPart` instead of surfacing raw prose
+- malformed bridge replies get one JSON-only repair retry. Bridged-turn reasoning deltas are buffered per-turn and only emitted on the final committed turn (not on discarded repair retries). If `toolMode: "required"` still omits usable tool calls after repair, the client returns `requiredToolWarning` and the provider emits it as a warning `LanguageModelTextPart` instead of surfacing raw prose
 
 ### Streamed tool call parsing
 
@@ -251,6 +251,7 @@ Reasoning is handled in both request shaping and response rendering.
   - `high`
   - `xhigh`
 - `auto` is local-only and means omission of `reasoning_effort`
+- invalid non-`auto` values trigger a one-time deduplicated warning (per provider instance lifetime) and fall back to omitting `reasoning_effort`
 
 ### Response side
 

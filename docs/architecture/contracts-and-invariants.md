@@ -165,6 +165,8 @@ Supported transmitted effort values:
 - `high`
 - `xhigh`
 
+When a configured value is non-empty, not `"auto"`, and not one of the six valid levels, the extension logs a one-time deduplicated warning per invalid value (keyed on the provider instance lifetime) and falls back to the model default by omitting `reasoning_effort` from the request.
+
 Current response-field compatibility:
 
 - `reasoning`
@@ -189,10 +191,11 @@ Invariants:
 - malformed streamed tool arguments degrade to `{}` rather than crash the stream
 - `toolCallingStrategy` is extension-local and accepts `native | auto | bridge`
 - `toolCallingStrategy` defaults to `native` when omitted or invalid; `auto` and `bridge` are explicit opt-in alternatives
-- `native` with tools buffers text and reasoning deltas and suppresses thin scaffolding preambles (e.g. "Let me gather related files..") when the stream also contains tool calls, to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams
-- `auto` retries at most once, and only when a tool-enabled native turn yields no tool calls and either no visible text or only low-signal scaffolding text
+- `native` and `auto` with tools both buffer the native turn through a unified `shouldBufferNativeTurn` path and suppress thin scaffolding preambles (e.g. "Let me gather related files..") when the stream also contains tool calls, to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams
+- `auto` additionally retries at most once via the bridge path when a tool-enabled native turn yields no tool calls and either no visible text or only low-signal scaffolding text
 - `bridge` rewrites tool history into plain messages plus a strict JSON-only system contract, and preserves `toolMode: "required"` through prompt instructions rather than native `tool_choice`
 - malformed bridged replies get one JSON-only repair retry before the client decides whether to parse tool calls, accept a final bridged answer, or fall back
+- bridged-turn reasoning deltas are buffered per-turn (via `reasoningChunks` on `BridgeTurnResult`) and only emitted on the final committed bridge turn; reasoning from a discarded repair-retry turn does not leak to the caller
 - when a bridged model reply still contains visible prose but omits the required JSON object after the repair retry, the client surfaces an explicit raw-text fallback warning only for non-required tool turns
 - when `toolMode: "required"` is active and the bridged model reply still does not contain any usable tool calls after the repair retry, the client returns a required-turn warning signal/string and the provider emits the warning `LanguageModelTextPart` instead of surfacing raw prose
 - pending streamed tool calls are flushed at EOF via `flushPendingToolCalls()` so providers that omit `[DONE]` do not silently lose tool calls
@@ -272,7 +275,7 @@ When changing this repository, verify all relevant items below.
 
 - If you add or change provider config fields, update:
   - `src/nanogpt.ts` (type + schema)
-  - `src/config.ts` (validator)
+  - `src/config.ts` (validator — note: `getReasoningEffort` delegates to `getReasoningEffortWithStatus` for invalid-value tracking)
   - `package.json` (contribution schema)
   - tests
 - If you change tool-calling strategy or bridge behavior, update:
