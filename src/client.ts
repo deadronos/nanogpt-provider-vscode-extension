@@ -104,6 +104,27 @@ function isRetryableStreamError(error: unknown): boolean {
 }
 
 /**
+ * Returns `true` when the error indicates the API rejected the request
+ * because the model produced malformed tool-call data. This is a specific
+ * API-level error (typically HTTP 400) that can be recovered from by
+ * retrying with the bridge tool-calling strategy, which uses a text-based
+ * JSON contract instead of native tool definitions.
+ */
+function isMalformedToolCallError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    if (
+      message.includes("malformed tool-call") ||
+      message.includes("malformed tool call") ||
+      message.includes("malformed tool_call")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Calculates an exponential backoff delay with jitter for retry attempts.
  */
 function calculateRetryDelayMs(attempt: number): number {
@@ -361,8 +382,14 @@ export class NanoGptClient {
       // Retries transient failures (network errors, idle timeouts, empty
       // responses) with exponential backoff. This prevents "model just
       // stopped" symptoms caused by transient transport issues.
-      let nativeSummary: StreamProcessingSummary;
-      let retryAttempt = 0;
+        let nativeSummary: StreamProcessingSummary = {
+          chunkCount: 0,
+          textPartCount: 0,
+          reasoningPartCount: 0,
+          toolCallCount: 0,
+        };
+        let retryAttempt = 0;
+        let shouldFallbackToBridge = false;
 
       for (;;) {
         // Clear buffered parts on each retry so we don't accumulate
@@ -387,6 +414,21 @@ export class NanoGptClient {
               : params.onToolCall,
           });
         } catch (error) {
+            // If the API rejected the request because the model produced
+            // malformed tool-call data, fall back to bridge mode
+            // (text-based JSON contract) instead of hard-failing.
+            if (
+              hasTools &&
+              (toolCallingStrategy === "auto" || toolCallingStrategy === "native") &&
+              isMalformedToolCallError(error)
+            ) {
+              this.logger.warn(
+                `[${requestId}] native tool-calling rejected by API (malformed tool-call data); retrying with bridge mode`,
+              );
+              shouldFallbackToBridge = true;
+              break;
+            }
+
           // Don't retry if the user cancelled or we've exhausted retries.
           if (timeoutSignal.signal.aborted || retryAttempt >= STREAM_MAX_RETRIES) {
             throw error;
@@ -467,6 +509,38 @@ export class NanoGptClient {
         // Success (or user cancelled).
         break;
       }
+
+        // If the native stream was rejected due to malformed tool-call data,
+        // retry with bridge mode which uses a text-based contract instead of
+        // native tool definitions.
+        if (shouldFallbackToBridge) {
+          const bridgeRetryMessages = buildToolCallingBridgeMessages({
+            messages: params.messages,
+            tools: params.tools ?? [],
+            toolMode: params.toolMode,
+            parallelToolCalls: params.parallelToolCalls,
+          });
+          const bridgeResult = await streamCompletionsViaBridge(
+            this.fetchImpl,
+            this.logger,
+            bridgeRetryMessages,
+            {
+              ...params,
+              signal: timeoutSignal.signal,
+              requestId: `${requestId}:bridge`,
+            },
+            {
+              onText: params.onText,
+              onReasoning: params.onReasoning,
+              onToolCall: params.onToolCall,
+            },
+          );
+          return {
+            bridgeTelemetry: bridgeResult.bridgeTelemetry,
+            requiredToolWarning: bridgeResult.requiredToolWarning,
+            summary: bridgeResult.summary,
+          };
+        }
 
       const bridgeRetryReason = getAutoBridgeRetryReason({
         hasTools,

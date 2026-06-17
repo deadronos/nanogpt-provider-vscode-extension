@@ -1571,4 +1571,85 @@ describe("NanoGptClient", () => {
     const warnLog = entries.find((e) => e.includes("finish-length") && e.includes("abnormal finish_reason"));
     expect(warnLog).toBeDefined();
   });
+
+    test("falls back to bridge mode when native tool-calling is rejected as malformed", async () => {
+      const { logger, entries } = createLoggerSink();
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockImplementationOnce(async () =>
+          new Response(
+            JSON.stringify({
+              error: { message: "The model returned malformed tool-call data.", type: "invalid_request_error", code: "400" },
+            }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockImplementationOnce(async () =>
+          new Response(
+            createReadableStream([
+              'data: {"choices":[{"delta":{"content":"{\\"v\\":1,\\"mode\\":\\"tool\\",\\"message\\":\\"Let me read that file.\\",\\"tool_calls\\":[{\\"name\\":\\"read_file\\",\\"arguments\\":{\\"path\\":\\"README.md\\"}}]}"}}]}\n\n',
+              "data: [DONE]\n\n",
+            ]),
+            { status: 200 },
+          ),
+        );
+
+      const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+      const texts: string[] = [];
+      const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
+
+      const result = await client.streamChatCompletions({
+        apiKey: "test-key",
+        modelId: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "Read the README" }],
+        routingMode: "subscription",
+        tools: [{ name: "read_file", description: "Read a workspace file" }],
+        toolCallingStrategy: "auto",
+        onText: (text) => texts.push(text),
+        onToolCall: (toolCall) => toolCalls.push(toolCall),
+      });
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(texts).toEqual(["Let me read that file."]);
+      expect(toolCalls).toEqual([
+        {
+          type: "tool_call",
+          callId: "bridge_call_1",
+          name: "read_file",
+          input: { path: "README.md" },
+        },
+      ]);
+      expect(entries).toContain(
+        "warn:[chat] native tool-calling rejected by API (malformed tool-call data); retrying with bridge mode",
+      );
+    });
+
+    test("does not fall back to bridge for malformed tool-call when no tools are present", async () => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockImplementationOnce(async () =>
+          new Response(
+            JSON.stringify({
+              error: { message: "The model returned malformed tool-call data.", type: "invalid_request_error", code: "400" },
+            }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+
+      const client = new NanoGptClient(fetchImpl as typeof fetch);
+
+      // Without tools, the malformed tool-call error should propagate as a normal failure.
+      await expect(
+        client.streamChatCompletions({
+          apiKey: "test-key",
+          modelId: "gpt-5.4-mini",
+          messages: [{ role: "user", content: "Hi" }],
+          routingMode: "subscription",
+          toolCallingStrategy: "auto",
+          onText: () => {},
+        }),
+      ).rejects.toThrow(/malformed tool-call/);
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
 });
