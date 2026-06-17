@@ -266,9 +266,11 @@ export function mapNanoGptModelsToVscode(
         tooltip: buildModelTooltip(id, contextWindow, maxOutputTokens),
         capabilities: {
           imageInput: Boolean(capabilities.imageInput ?? capabilities.vision ?? entry.vision),
-          toolCalling: Boolean(
-            capabilities.toolCalling ?? capabilities.tool_calling ?? entry.tool_calling,
-          ),
+            toolCalling: capabilities.parallel_tool_calls
+              ? 8
+              : Boolean(
+                  capabilities.toolCalling ?? capabilities.tool_calling ?? entry.tool_calling,
+                ),
           family,
           tokenizer,
         },

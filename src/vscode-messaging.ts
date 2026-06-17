@@ -39,6 +39,7 @@ export function toCoreMessages(
 ): Parameters<typeof toNanoGptMessages>[0] {
   return messages.map((message) => ({
     role: message.role,
+      name: message.name,
     content: message.content.map((part) => {
       if (part instanceof vscode.LanguageModelTextPart) {
         return { value: part.value };

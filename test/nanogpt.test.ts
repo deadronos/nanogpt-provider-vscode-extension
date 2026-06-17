@@ -72,7 +72,7 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     expect(models).toHaveLength(1);
     expect(models[0]!.capabilities).toEqual({
       imageInput: true,
-      toolCalling: true,
+        toolCalling: 8,
       family: "test/model",
       tokenizer: "o200k_base",
     });

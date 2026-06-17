@@ -176,3 +176,156 @@ The extension implements several features beyond the minimum VS Code API contrac
 | Family-based cache tokens | Cache entries shared across model size variants |
 | Fresh-install onboarding | Auto-opens API key flow on first launch |
 | Reset configuration | Full cleanup command for all extension state |
+
+---
+
+## 9. Concrete Improvement Suggestions (Path to 100%)
+
+Only 3 of the 6 gaps are actionable at the code level (gaps 3, 4, and 6 are
+by-design or informational). Below are concrete implementation plans ranked by
+effort-to-impact ratio.
+
+### 9.1 Quick Win: Forward `message.name` (~5 lines)
+
+**Gap #5** — The `name` field on `LanguageModelChatRequestMessage` carries
+participant attribution (e.g. which agent or tool sent the message). VS Code
+uses it to label tool-call sources in the chat UI.
+
+**Files to change:**
+
+1. `src/vscode-messaging.ts` — `toCoreMessages()`: add `name: message.name` to
+   the mapped message object.
+2. `src/nanogpt-types.ts` — `VscodeLikeMessage`: add `name?: string | undefined`.
+3. `src/nanogpt-message.ts` — `toNanoGptMessages()`: when a user message has a
+   `name`, prefix the text content (e.g. `"[from agent-name]: user text"`).
+
+```typescript
+// src/vscode-messaging.ts — toCoreMessages()
+return messages.map((message) => ({
+  role: message.role,
+  name: message.name,  // ← add this line
+  content: message.content.map((part) => { ...
+}));
+
+// src/nanogpt-types.ts — VscodeLikeMessage
+export type VscodeLikeMessage = {
+  role: string | number;
+  name?: string | undefined;  // ← add this line
+  content: readonly VscodeLikePart[];
+};
+```
+
+### 9.2 Low Effort: `toolCalling` as Number for Parallel-Call Models (~3 lines)
+
+**Gap #1** — VS Code accepts `capabilities.toolCalling` as `boolean | number`.
+When a model supports parallel tool calls, reporting a number gives VS Code a
+better signal for tool-call orchestration.
+
+**File to change:** `src/nanogpt.ts` — `mapNanoGptModelsToVscode()`.
+
+Since NanoGPT reports `parallel_tool_calls` as a boolean (not a count), use a
+conservative sentinel: `8` is a reasonable default for modern models that
+support parallel calls (matches Anthropic's documented parallel limit).
+
+```typescript
+// src/nanogpt.ts — mapNanoGptModelsToVscode(), replace the capabilities block:
+capabilities: {
+  imageInput: Boolean(capabilities.imageInput ?? capabilities.vision ?? entry.vision),
+  toolCalling: capabilities.parallel_tool_calls
+    ? 8  // conservative parallel-call count for models that advertise support
+    : Boolean(capabilities.toolCalling ?? capabilities.tool_calling ?? entry.tool_calling),
+  family,
+  tokenizer,
+},
+```
+
+Note: `Boolean(...)` is still used as the fallback for models without
+`parallel_tool_calls` — VS Code accepts both `boolean` and `number`.
+
+### 9.3 Medium Effort: Model-Specific Tokenizer (~40 lines + dependency)
+
+**Gap #2** — `provideTokenCount` uses a `chars/4` heuristic. NanoGPT
+discovery reports a `tokenizer` hint (`"cl100k_base"` or `"o200k_base"`)
+that could drive `tiktoken` for accurate counts.
+
+**Install:** `npm install tiktoken` (or the lighter `js-tiktoken` WASM-free port).
+
+**File to change:** `src/nanogpt.ts` — `estimateTokenCount()`.
+
+```typescript
+import { encoding_for_model, get_encoding } from "tiktoken";
+import type { NanoGptTokenizer } from "./nanogpt-types.js";
+
+/** Lazy-initialised tokenizer cache, keyed by NanoGptTokenizer hint. */
+const tokenizerCache = new Map<string, ReturnType<typeof get_encoding>>();
+
+function getTokenizer(hint?: NanoGptTokenizer) {
+  const key = hint ?? "o200k_base";
+  let enc = tokenizerCache.get(key);
+  if (!enc) {
+    try {
+      enc = hint === "cl100k_base"
+        ? get_encoding("cl100k_base")
+        : encoding_for_model("gpt-4o"); // o200k_base
+      tokenizerCache.set(key, enc);
+    } catch {
+      return undefined; // fall back to heuristic
+    }
+  }
+  return enc;
+}
+
+export function estimateTokenCount(
+  value: string | VscodeLikeMessage,
+  tools?: readonly VscodeLikeTool[],
+  tokenizerHint?: NanoGptTokenizer,
+): number {
+  const enc = getTokenizer(tokenizerHint);
+  if (enc && typeof value === "string") {
+    return enc.encode(value).length;
+  }
+  // ... existing heuristic fallback ...
+}
+```
+
+**File to change:** `src/extension.ts` — `provideTokenCount()`.
+
+Pass `model.capabilities.tokenizer` through to `estimateTokenCount`:
+
+```typescript
+async provideTokenCount(
+  model: VscodeModelMetadata,
+  text: string | vscode.LanguageModelChatRequestMessage,
+  _token: vscode.CancellationToken,
+): Promise<number> {
+  if (typeof text === "string") {
+    return estimateTokenCount(text, undefined, model.capabilities.tokenizer);
+  }
+  return estimateTokenCount(toCoreMessages([text])[0], undefined, model.capabilities.tokenizer);
+}
+```
+
+**Trade-off:** `tiktoken` adds ~3 MB to the extension bundle and requires
+Node.js native addon support. The lighter `js-tiktoken` (pure JS, ~200 KB)
+avoids native deps but is slower on large inputs. If bundle size matters more
+than accuracy, the heuristic is adequate — VS Code only uses this for UI
+progress estimates, not for actual API budgeting.
+
+### 9.4 Not Worth Pursuing (Informational Gaps)
+
+| Gap | Rationale |
+| --- | --- |
+| #3: `LanguageModelToolResultPart` as response part | This part type is only consumed as *input* to models. VS Code docs list it under response types for completeness, but no real provider emits it. |
+| #4: `LanguageModelPromptTsxPart` non-string values | The current implementation already handles strings and arrays of strings. Non-string Prompt TSX values (objects, numbers) are theoretical — no known VS Code integration produces them. |
+| #6: `maxInputTokens` mapping | VS Code's docs example subtracts `maxOutput` from `contextWindow` as a conservative guess. NanoGPT reports `context_length` / `contextWindow` as the actual max input tokens, so using it directly is more accurate, not less. |
+
+### Implementation Priority
+
+| Priority | Improvement | Effort | Lines |
+| --- | --- | --- | --- |
+| **P1** | Forward `message.name` | Minutes | ~5 |
+| **P2** | `toolCalling: number` for parallel models | Minutes | ~3 |
+| **P3** | Model-specific tokenizer | Hours (adds dep) | ~40 |
+
+Executing P1 + P2 closes 5/6 gaps as either implemented or intentionally
+skipped, leaving only the tokenizer gap as a future enhancement.
