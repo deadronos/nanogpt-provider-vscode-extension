@@ -81,6 +81,13 @@ export function toCoreMessages(
  * Maps the VS Code `LanguageModelChatToolMode` enum to the NanoGPT
  * tool-mode string (`"required"`). Returns `undefined`
  * when no mode is configured.
+ *
+ * `LanguageModelChatToolMode.Auto` is intentionally mapped to
+ * `undefined` (no tool-mode header sent) because NanoGPT does not
+ * have a direct equivalent — the server defaults to standard
+ * tool-calling behavior without it, and the extension's own
+ * `toolCallingStrategy` (`auto`/`native`/`bridge`) controls the
+ * higher-level tool-calling orchestration.
  */
 export function toToolMode(
   toolMode: vscode.LanguageModelChatToolMode | undefined,

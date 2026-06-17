@@ -25,6 +25,25 @@ type StreamLogger = {
 };
 
 /**
+ * Custom error thrown when the NanoGPT API returns a non-OK HTTP response.
+ * Preserves the structured error fields (`code`, `type`) from the API
+ * response body so callers can match on error categories instead of
+ * relying on fragile substring searches of the error message.
+ */
+export class NanoGptApiError extends Error {
+  /** API error code (e.g. `"malformed_tool_call"`). */
+  readonly code?: string;
+  /** API error type (e.g. `"invalid_request_error"`). */
+  readonly type?: string;
+
+  constructor(message: string, code?: string, type?: string) {
+    super(message);
+    this.name = "NanoGptApiError";
+    this.code = code;
+    this.type = type;
+  }
+}
+/**
  * Default idle timeout for a single chunk read. If no data arrives
  * within this window, the stream is considered stalled and an error
  * is thrown. This is distinct from the global fetch timeout — it
@@ -76,15 +95,19 @@ export async function executeStreamingRequest(
 
   if (!response.ok) {
     let message = "NanoGPT chat request failed with HTTP " + response.status;
+      let apiCode: string | undefined;
+      let apiType: string | undefined;
     try {
       const body = await response.json() as { error?: { message?: string; code?: string; type?: string } };
       if (body?.error?.message) {
+          apiCode = body.error.code;
+          apiType = body.error.type;
         message = "[NanoGPT] " + body.error.message + (body.error.type ? " (" + body.error.type + ")" : "") + (body.error.code ? " [" + body.error.code + "]" : "");
       }
     } catch {
       // Use the default message if the body is not JSON.
     }
-    throw new Error(message);
+      throw new NanoGptApiError(message, apiCode, apiType);
   }
 
   if (!response.body) {

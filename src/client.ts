@@ -17,6 +17,7 @@ import {
 } from "./nanogpt.js";
 import { withTimeout, formatKeyValuePairs, getHeader, type ManagedAbortSignal } from "./utils.js";
 import { executeStreamingRequest, emitParts, type StreamProcessingSummary } from "./client-stream.js";
+import { NanoGptApiError } from "./client-stream.js";
 import {
   isLikelyToolScaffoldingText,
   collectTextParts,
@@ -111,12 +112,26 @@ function isRetryableStreamError(error: unknown): boolean {
  * JSON contract instead of native tool definitions.
  */
 function isMalformedToolCallError(error: unknown): boolean {
+  // Check structured API error fields first (more reliable than message parsing).
+  if (error instanceof NanoGptApiError) {
+    const code = error.code?.toLowerCase() ?? "";
+    const type = error.type?.toLowerCase() ?? "";
+    if (
+      code.includes("malformed") ||
+      type.includes("malformed")
+    ) {
+      return true;
+    }
+  }
+  // Fall back to substring matching on the error message for cases where
+  // the error comes from a different source (e.g. fetch-level errors).
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
     if (
       message.includes("malformed tool-call") ||
       message.includes("malformed tool call") ||
-      message.includes("malformed tool_call")
+      message.includes("malformed tool_call") ||
+      message.includes("malformed_tool_call")
     ) {
       return true;
     }
