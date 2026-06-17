@@ -32,7 +32,7 @@ That separation is not incidental. It is a core design constraint of the reposit
 | `src/config.ts` | Configuration resolution: API key, routing, provider, models, reasoning, logging. |
 | `src/logging.ts` | `NanoGPT` output channel and logger construction. |
 | `src/vscode-messaging.ts` | VS Code message-part compatibility (`toCoreMessages`, `toToolMode`, `createThinkingPart`). |
-| `src/client.ts` | Executes `GET /models` and `POST /chat/completions`, manages timeouts and cancellation, and streams SSE responses into typed callbacks. |
+| `src/client.ts` | Executes `GET /models` and `POST /chat/completions` with retry logic (exponential backoff for transient failures, idle timeouts, 0-part responses), manages timeouts and cancellation, tracks `finish_reason`, and streams SSE responses into typed callbacks. |
 | `src/client-stream.ts` | Core SSE streaming execution (`executeStreamingRequest`, `emitParts`) shared by native and bridge paths. |
 | `src/client-bridge.ts` | Bridge orchestration (`streamCompletionsViaBridge`, `executeBridgeTurn`), retry heuristics, and scaffolding detection. |
 | `src/provider-cache.ts` | Model cache key creation, hydration, and persistence to `globalState`. |

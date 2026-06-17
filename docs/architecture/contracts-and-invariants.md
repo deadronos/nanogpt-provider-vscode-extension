@@ -25,7 +25,9 @@ Expected responsibilities:
 
 - HTTP requests
 - timeout/cancellation composition (via `utils.ts`)
-- SSE stream reading
+- **retry logic with exponential backoff** for transient failures (network errors, idle timeouts, 0-part responses)
+- **per-chunk idle timeout** (60s default) to detect stalled streams
+- SSE stream reading with **finish_reason tracking** and abnormal-value warnings
 - low-level sanitized transport logging
 
 ### Core Transformation Layer (`src/nanogpt.ts`, `src/nanogpt-types.ts`, `src/nanogpt-message.ts`, `src/nanogpt-tool-bridge.ts`, `src/bridge-types.ts`, `src/bridge-message-builder.ts`, `src/bridge-payload-parser.ts`, `src/bridge-xml-parser.ts`, `src/bridge-json-parser.ts`, `src/nanogpt-request.ts`, `src/nanogpt-parser.ts`, `src/default-models.ts`)
