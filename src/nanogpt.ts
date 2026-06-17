@@ -57,6 +57,9 @@ export {
 
 // ── Module-specific exports (kept in this file) ──────────────────────────────
 
+import { Tiktoken } from "js-tiktoken/lite";
+import cl100k_base_ranks from "js-tiktoken/ranks/cl100k_base";
+import o200k_base_ranks from "js-tiktoken/ranks/o200k_base";
 import { isObject, isPositiveNumber } from "./utils.js";
 import {
   type NanoGptModelEntry,
@@ -68,8 +71,6 @@ import {
 } from "./nanogpt-types.js";
 import { getTextPartValue, toNanoGptImagePart } from "./nanogpt-message.js";
 
-import { getEncoding, type Tiktoken } from "js-tiktoken";
-
 // ── Lazy encoder cache ──────────────────────────────────────────────────────
 //
 // `Tiktoken` instances are expensive to construct (they load large BPE rank
@@ -80,8 +81,12 @@ const encoderCache = new Map<NanoGptTokenizer, Tiktoken>();
 function getEncoder(tokenizer: NanoGptTokenizer): Tiktoken | null {
   const cached = encoderCache.get(tokenizer);
   if (cached) return cached;
+  if (tokenizer !== "cl100k_base" && tokenizer !== "o200k_base") {
+    return null;
+  }
   try {
-    const enc = getEncoding(tokenizer);
+    const rankData = tokenizer === "cl100k_base" ? cl100k_base_ranks : o200k_base_ranks;
+    const enc = new Tiktoken(rankData);
     encoderCache.set(tokenizer, enc);
     return enc;
   } catch {

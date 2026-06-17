@@ -14,6 +14,12 @@ CLAUDE.md
 .gitignore
 coverage/**
 node_modules/**
+!node_modules/base64-js/**
+!node_modules/js-tiktoken/package.json
+!node_modules/js-tiktoken/dist/lite.js
+!node_modules/js-tiktoken/dist/chunk-VL2OQCWN.js
+!node_modules/js-tiktoken/dist/ranks/cl100k_base.js
+!node_modules/js-tiktoken/dist/ranks/o200k_base.js
 dist/src/**
 dist/test/**
 tsconfig.json

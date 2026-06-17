@@ -328,7 +328,10 @@ progress estimates, not for actual API budgeting.
 | **P3** | Model-specific tokenizer ✅ | ~2 hours | ~40 |
 
 Executing P1 + P2 + P3 closes all 6 gaps as either implemented or intentionally
-skipped. The tokenizer implementation uses `js-tiktoken` (pure JS, ~200 KB,
-no native deps) with a lazy encoder cache keyed by `NanoGptTokenizer`
-(`cl100k_base` / `o200k_base`). Falls back to the character-count heuristic
-when no tokenizer hint is available or encoding fails.
+skipped. The tokenizer implementation uses `js-tiktoken/lite` (pure JS,
+no WASM/native deps) with direct imports of only the two BPE rank files
+we need (`cl100k_base` ~1 MB, `o200k_base` ~2.2 MB), bringing the total
+dependency overhead to ~3.2 MB. A lazy encoder cache keyed by
+`NanoGptTokenizer` avoids reconstructing the expensive `Tiktoken`
+instances. Falls back to the character-count heuristic when no tokenizer
+hint is available or the encoding name is not recognised.
