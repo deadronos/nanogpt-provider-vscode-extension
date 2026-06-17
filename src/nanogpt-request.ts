@@ -97,6 +97,46 @@ export function prepareChatRequest(
   return result;
 }
 
+
+function estimateMessageTokens(message: NanoGptChatMessage): number {
+  if (typeof message.content === "string") return Math.max(1, Math.ceil(message.content.length / 4));
+  if (!Array.isArray(message.content)) return 1;
+  let chars = 0;
+  for (const part of message.content) {
+    if (part.type === "text" && typeof part.text === "string") chars += part.text.length;
+    else if (part.type === "image_url") chars += 1024 * 4;
+    chars += 4;
+  }
+  return Math.max(1, Math.ceil(chars / 4));
+}
+
+
+export function truncateMessagesForContext(messages: readonly NanoGptChatMessage[], maxInputTokens: number, logger?: PrepareChatRequestLogger): NanoGptChatMessage[] {
+  if (messages.length === 0) return [];
+  let totalTokens = 0;
+  for (const msg of messages) totalTokens += estimateMessageTokens(msg);
+  const budget = Math.floor(maxInputTokens * 0.9);
+  if (totalTokens <= budget) return [...messages];
+  const result = [...messages];
+  const dropped = [];
+  while (totalTokens > budget && result.length > 0) {
+    let dropIndex = -1;
+    for (let i = 0; i < result.length; i++) {
+      if (result[i].role !== "system") { dropIndex = i; break; }
+    }
+    if (dropIndex === -1) break;
+    const removed = result.splice(dropIndex, 1)[0];
+    dropped.push(removed);
+    totalTokens -= estimateMessageTokens(removed);
+  }
+  if (dropped.length > 0 && logger) {
+    const dt = dropped.reduce((s, m) => s + estimateMessageTokens(m), 0);
+    logger.warn("NanoGPT truncateMessagesForContext: estimated " + (totalTokens + dt) + " tokens exceeds budget " + budget + " (maxInputTokens=" + maxInputTokens + "). Dropped " + dropped.length + " oldest non-system messages to fit within budget. Remaining: " + result.length + " messages, ~" + totalTokens + " estimated tokens.");
+  }
+  return result;
+}
+
+
 /**
  * Builds the full HTTP request configuration for a NanoGPT
  * chat completion call.

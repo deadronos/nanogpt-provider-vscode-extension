@@ -608,6 +608,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
         reasoningEffort,
         reasoningOutput,
         toolCallingStrategy,
+        maxInputTokens: model.maxInputTokens,
         parallelToolCalls: model.internal?.parallelToolCalls,
         signal: abortSignal.signal,
         requestId,

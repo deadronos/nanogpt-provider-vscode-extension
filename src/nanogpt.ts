@@ -47,7 +47,7 @@ export type {
   NanoGptToolBridgeParseResult,
 } from "./nanogpt-tool-bridge.js";
 
-export { buildNanoGptChatCompletionRequest, prepareChatRequest } from "./nanogpt-request.js";
+export { buildNanoGptChatCompletionRequest, prepareChatRequest, truncateMessagesForContext } from "./nanogpt-request.js";
 
 export {
   NanoGptSseParser,

@@ -1,5 +1,6 @@
 import {
   buildNanoGptChatCompletionRequest,
+  truncateMessagesForContext,
   buildToolCallingBridgeMessages,
   NANOGPT_BASE_URL,
   NANOGPT_SUBSCRIPTION_BASE_URL,
@@ -145,6 +146,7 @@ type StreamRequestCore = {
   routingMode: NanoGptRoutingMode;
   provider?: string;
   maxTokens?: number;
+  maxInputTokens?: number;
   reasoningEffort?: NanoGptReasoningEffort;
   reasoningOutput?: NanoGptReasoningOutput;
   signal?: AbortSignal;
@@ -286,6 +288,7 @@ export class NanoGptClient {
     routingMode: NanoGptRoutingMode;
     provider?: string;
     maxTokens?: number;
+    maxInputTokens?: number;
     tools?: readonly VscodeLikeTool[];
     toolMode?: "auto" | "required";
     reasoningEffort?: NanoGptReasoningEffort;
@@ -534,11 +537,14 @@ export class NanoGptClient {
       toolMode?: "auto" | "required";
       parallelToolCalls?: boolean;
     } & StreamRequestCore & StreamCallbacks): Promise<StreamProcessingSummary> {
+      const messages = params.maxInputTokens
+        ? truncateMessagesForContext(params.messages, params.maxInputTokens, this.logger)
+        : params.messages;
       return executeStreamingRequest(this.fetchImpl, this.logger, {
       request: buildNanoGptChatCompletionRequest({
         apiKey: params.apiKey,
         modelId: params.modelId,
-          messages: prepareChatRequest(params.messages, this.logger),
+          messages: prepareChatRequest(messages, this.logger),
         routingMode: params.routingMode,
         provider: params.provider,
         maxTokens: params.maxTokens,
