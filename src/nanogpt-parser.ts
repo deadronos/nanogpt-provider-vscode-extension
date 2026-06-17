@@ -43,10 +43,19 @@ type PendingToolCall = {
  * Usage: create one instance per stream, then call {@link acceptLines}
  * with each batch of buffered SSE lines.
  */
+/**
+ * Abnormal finish reasons that indicate the response was truncated,
+ * refused, or otherwise did not complete normally. When detected, the
+ * caller should surface a warning or error rather than silently treating
+ * the response as complete.
+ */
+export const ABNORMAL_FINISH_REASONS = new Set(["length", "content_filter"]);
+
 export class NanoGptSseParser {
   private readonly toolCalls = new Map<number, PendingToolCall>();
   private emittedToolCalls = false;
   private lastSeenIndex = 0;
+  private _finishReason: string | undefined;
 
   /**
    * Feeds one or more SSE lines into the parser and returns any
@@ -117,6 +126,10 @@ export class NanoGptSseParser {
             this.toolCalls.set(index, pending);
           }
 
+          if (typeof choice.finish_reason === "string" && choice.finish_reason) {
+            this._finishReason = choice.finish_reason;
+          }
+
           if (choice.finish_reason === "tool_calls") {
             parts.push(...this.flushToolCalls());
           }
@@ -127,6 +140,15 @@ export class NanoGptSseParser {
     }
 
     return parts;
+  }
+
+  /**
+   * Returns the last `finish_reason` seen in the stream, or `undefined`
+   * if no choice with a `finish_reason` was encountered. Abnormal values
+   * (`"length"`, `"content_filter"`) indicate truncation or refusal.
+   */
+  get finishReason(): string | undefined {
+    return this._finishReason;
   }
 
   /**

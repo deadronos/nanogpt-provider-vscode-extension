@@ -145,4 +145,48 @@ describe("nanogpt-parser: SSE parser", () => {
       { type: "tool_call", callId: "call_1", name: "read_file", input: { path: "README.md" } },
     ]);
   });
+
+  test("tracks finish_reason from the last choice in the stream", () => {
+    const parser = new NanoGptSseParser();
+    parser.acceptLines([
+      'data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":null}]}',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+      "data: [DONE]",
+    ]);
+    expect(parser.finishReason).toBe("stop");
+  });
+
+  test("tracks finish_reason 'length' for truncated responses", () => {
+    const parser = new NanoGptSseParser();
+    parser.acceptLines([
+      'data: {"choices":[{"delta":{"content":"partial"},"finish_reason":"length"}]}',
+      "data: [DONE]",
+    ]);
+    expect(parser.finishReason).toBe("length");
+  });
+
+  test("tracks finish_reason 'content_filter' for refused responses", () => {
+    const parser = new NanoGptSseParser();
+    parser.acceptLines([
+      'data: {"choices":[{"delta":{},"finish_reason":"content_filter"}]}',
+      "data: [DONE]",
+    ]);
+    expect(parser.finishReason).toBe("content_filter");
+  });
+
+  test("tracks finish_reason 'tool_calls' when tools are invoked", () => {
+    const parser = new NanoGptSseParser();
+    parser.acceptLines([
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"run","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}',
+    ]);
+    expect(parser.finishReason).toBe("tool_calls");
+  });
+
+  test("finishReason is undefined when no finish_reason is seen", () => {
+    const parser = new NanoGptSseParser();
+    parser.acceptLines([
+      'data: {"choices":[{"delta":{"content":"hi"}}]}',
+    ]);
+    expect(parser.finishReason).toBeUndefined();
+  });
 });

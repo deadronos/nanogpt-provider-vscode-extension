@@ -52,6 +52,67 @@ const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
  */
 const STREAM_FETCH_TIMEOUT_MS = 5 * 60_000;
 
+// ── Retry configuration ────────────────────────────────────────────────────
+
+/**
+ * Maximum number of retry attempts for transient stream failures.
+ * Total attempts = 1 (initial) + maxRetries.
+ */
+const STREAM_MAX_RETRIES = 2;
+
+/** Initial backoff delay in milliseconds before the first retry. */
+const STREAM_RETRY_INITIAL_DELAY_MS = 500;
+
+/** Maximum backoff delay cap in milliseconds. */
+const STREAM_RETRY_MAX_DELAY_MS = 5_000;
+
+/** Backoff multiplier applied per retry attempt. */
+const STREAM_RETRY_BACKOFF_MULTIPLIER = 2;
+
+/**
+ * Returns `true` when the error looks like a transient network or
+ * transport failure that is worth retrying. Auth errors, bad requests,
+ * and other deterministic failures are not retried.
+ */
+function isRetryableStreamError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    // Network / transport failures
+    if (
+      message.includes("fetch") ||
+      message.includes("network") ||
+      message.includes("econnreset") ||
+      message.includes("econnrefused") ||
+      message.includes("etimedout") ||
+      message.includes("socket hang up") ||
+      message.includes("aborted") ||
+      message.includes("idle timeout") ||
+      message.includes("stream") ||
+      message.includes("terminated")
+    ) {
+      return true;
+    }
+    // HTTP errors in the 5xx range are transient
+    const statusMatch = error.message.match(/HTTP\s+(\d{3})/);
+    if (statusMatch) {
+      const status = Number.parseInt(statusMatch[1]!, 10);
+      return status >= 500 && status < 600;
+    }
+  }
+  return false;
+}
+
+/**
+ * Calculates an exponential backoff delay with jitter for retry attempts.
+ */
+function calculateRetryDelayMs(attempt: number): number {
+  const exponential = STREAM_RETRY_INITIAL_DELAY_MS * Math.pow(STREAM_RETRY_BACKOFF_MULTIPLIER, attempt);
+  const capped = Math.min(exponential, STREAM_RETRY_MAX_DELAY_MS);
+  // Add ±25% jitter to prevent thundering herd
+  const jitter = capped * 0.25 * (Math.random() * 2 - 1);
+  return Math.max(0, Math.round(capped + jitter));
+}
+
 export type NanoGptBridgeTelemetry = {
   bridgeRepairAttempts: number;
   bridgeRepairSuccesses: number;
@@ -293,20 +354,106 @@ export class NanoGptClient {
         };
       }
 
-      const nativeSummary = await this.streamNativeChatCompletions({
-        ...params,
-        signal: timeoutSignal.signal,
-        requestId,
-        onText: shouldBufferNativeTurn
-           ? (text: string) => bufferedNativeParts.push({ type: "text", text })
-          : params.onText,
-        onReasoning: shouldBufferNativeTurn
-           ? (text: string) => bufferedNativeParts.push({ type: "reasoning", text })
-          : params.onReasoning,
-        onToolCall: shouldBufferNativeTurn
-           ? (toolCall: NanoGptResponsePart & { type: "tool_call" }) => bufferedNativeParts.push(toolCall)
-          : params.onToolCall,
-      });
+      // ── Native stream with retry loop ────────────────────────────────
+      // Retries transient failures (network errors, idle timeouts, empty
+      // responses) with exponential backoff. This prevents "model just
+      // stopped" symptoms caused by transient transport issues.
+      let nativeSummary: StreamProcessingSummary;
+      let retryAttempt = 0;
+
+      for (;;) {
+        // Clear buffered parts on each retry so we don't accumulate
+        // duplicate text/reasoning from previous failed attempts.
+        if (retryAttempt > 0) {
+          bufferedNativeParts.length = 0;
+        }
+
+        try {
+          nativeSummary = await this.streamNativeChatCompletions({
+            ...params,
+            signal: timeoutSignal.signal,
+            requestId: retryAttempt > 0 ? `${requestId}:retry${retryAttempt}` : requestId,
+            onText: shouldBufferNativeTurn
+               ? (text: string) => bufferedNativeParts.push({ type: "text", text })
+              : params.onText,
+            onReasoning: shouldBufferNativeTurn
+               ? (text: string) => bufferedNativeParts.push({ type: "reasoning", text })
+              : params.onReasoning,
+            onToolCall: shouldBufferNativeTurn
+               ? (toolCall: NanoGptResponsePart & { type: "tool_call" }) => bufferedNativeParts.push(toolCall)
+              : params.onToolCall,
+          });
+        } catch (error) {
+          // Don't retry if the user cancelled or we've exhausted retries.
+          if (timeoutSignal.signal.aborted || retryAttempt >= STREAM_MAX_RETRIES) {
+            throw error;
+          }
+
+          if (!isRetryableStreamError(error)) {
+            this.logger.warn(
+              `[${requestId}] native stream failed with non-retryable error: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            throw error;
+          }
+
+          const delayMs = calculateRetryDelayMs(retryAttempt);
+          this.logger.warn(
+            `[${requestId}] native stream failed (attempt ${retryAttempt + 1}/${STREAM_MAX_RETRIES + 1}), retrying in ${delayMs}ms: ${error instanceof Error ? error.message : String(error)}`,
+          );
+
+          // Wait with cancellation awareness.
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, delayMs);
+            const onAbort = () => {
+              clearTimeout(timer);
+              reject(new Error("NanoGPT stream retry aborted"));
+            };
+            if (timeoutSignal.signal.aborted) {
+              clearTimeout(timer);
+              reject(new Error("NanoGPT stream retry aborted"));
+              return;
+            }
+            timeoutSignal.signal.addEventListener("abort", onAbort, { once: true });
+          });
+
+          retryAttempt++;
+          continue;
+        }
+
+        // Check for 0-part response (empty stream). This often indicates
+        // a transient issue where the server returned 200 but sent no data.
+        const totalParts = nativeSummary.textPartCount + nativeSummary.reasoningPartCount + nativeSummary.toolCallCount;
+        if (
+          totalParts === 0 &&
+          !timeoutSignal.signal.aborted &&
+          retryAttempt < STREAM_MAX_RETRIES
+        ) {
+          const delayMs = calculateRetryDelayMs(retryAttempt);
+          this.logger.warn(
+            `[${requestId}] native stream returned 0 parts (attempt ${retryAttempt + 1}/${STREAM_MAX_RETRIES + 1}), retrying in ${delayMs}ms`,
+          );
+
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, delayMs);
+            const onAbort = () => {
+              clearTimeout(timer);
+              reject(new Error("NanoGPT stream retry aborted"));
+            };
+            if (timeoutSignal.signal.aborted) {
+              clearTimeout(timer);
+              reject(new Error("NanoGPT stream retry aborted"));
+              return;
+            }
+            timeoutSignal.signal.addEventListener("abort", onAbort, { once: true });
+          });
+
+          retryAttempt++;
+          continue;
+        }
+
+        // Success (or 0-part but exhausted retries, or user cancelled).
+        break;
+      }
 
       const bridgeRetryReason = getAutoBridgeRetryReason({
         hasTools,

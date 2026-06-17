@@ -22,7 +22,9 @@ All notable changes to this project will be documented in this file.
 - Buffered bridge-turn reasoning until the final committed turn instead of streaming reasoning live on every attempt. This prevents reasoning from a discarded repair-retry turn from leaking to the user when `reasoningOutput` is `native` or `visible`.
 - Surfaced a one-time deduplicated warning in the output log when `reasoningEffort` is configured to a non-empty, non-`auto` value that is not one of the six valid NanoGPT effort levels (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`).
 - Changed the missing-API-key error to use `LanguageModelError.NotFound()` so consumers can distinguish a credential failure from a generic transport error via the error `code` property.
-- Clarified the scaffolding-suppression heuristic, the year-strip risk in the family-token regex, and the capability-pessimistic fallback catalogue in doc comments and the walkthrough guide.
+- Clarified the scaffolding-suppression heuristic, the year-strip risk in the family-token regex, and the capability-pessimistic fallback catalogue in doc comments and the walkthrough guide.- Added a retry loop with exponential backoff (max 2 retries) around native streaming calls so transient network errors, idle timeouts, and 0-part responses are retried transparently instead of surfacing as "model just stopped." Non-retryable errors (auth failures, 4xx) and already-aborted signals are not retried.
+- Added a per-chunk idle timeout (60s default) to the SSE stream reader so hung connections that stop sending data without closing are detected and aborted instead of silently waiting for the 5-minute global timeout.
+- Added `finish_reason` tracking to the SSE parser. Abnormal finish reasons (`"length"` for truncation, `"content_filter"` for refusal) are now logged as warnings and exposed in `StreamProcessingSummary.finishReason` so callers can distinguish normal completions from truncated or refused responses.
 
 ## 0.0.20
 
