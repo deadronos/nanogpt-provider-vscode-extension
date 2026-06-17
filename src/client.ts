@@ -401,7 +401,7 @@ export class NanoGptClient {
 
           const delayMs = calculateRetryDelayMs(retryAttempt);
           this.logger.warn(
-            `[${requestId}] native stream failed (attempt ${retryAttempt + 1}/${STREAM_MAX_RETRIES + 1}), retrying in ${delayMs}ms: ${error instanceof Error ? error.message : String(error)}`,
+            `[${requestId}] native stream failed (retry ${retryAttempt + 1}/${STREAM_MAX_RETRIES}), retrying in ${delayMs}ms: ${error instanceof Error ? error.message : String(error)}`,
           );
 
           // Wait with cancellation awareness.
@@ -433,7 +433,7 @@ export class NanoGptClient {
         ) {
           const delayMs = calculateRetryDelayMs(retryAttempt);
           this.logger.warn(
-            `[${requestId}] native stream returned 0 parts (attempt ${retryAttempt + 1}/${STREAM_MAX_RETRIES + 1}), retrying in ${delayMs}ms`,
+            `[${requestId}] native stream returned 0 parts (retry ${retryAttempt + 1}/${STREAM_MAX_RETRIES}), retrying in ${delayMs}ms`,
           );
 
           await new Promise<void>((resolve, reject) => {
@@ -454,7 +454,17 @@ export class NanoGptClient {
           continue;
         }
 
-        // Success (or 0-part but exhausted retries, or user cancelled).
+        // If we exhausted retries and still got 0 parts, fail loudly so the
+        // user sees an error rather than a silent "stopped" turn.
+        if (totalParts === 0 && !timeoutSignal.signal.aborted) {
+          throw new Error(
+            "NanoGPT stream returned no content after " +
+              (STREAM_MAX_RETRIES + 1) +
+              " attempts. The provider may be temporarily unavailable.",
+          );
+        }
+
+        // Success (or user cancelled).
         break;
       }
 

@@ -799,17 +799,16 @@ describe("NanoGptClient", () => {
       new Response(null, { status: 200 });
 
     const client = new NanoGptClient(fetchImpl as typeof fetch);
-    const texts: string[] = [];
 
-    await client.streamChatCompletions({
+      await expect(
+        client.streamChatCompletions({
       apiKey: "test-key",
       modelId: "gpt-5.4-mini",
       messages: [{ role: "user", content: "Hi" }],
       routingMode: "subscription",
-      onText: (t) => texts.push(t),
-    });
-
-    expect(texts).toEqual([]);
+          onText: () => {},
+        }),
+      ).rejects.toThrow("NanoGPT stream returned no content after 3 attempts");
   });
 
   test("releases the response reader after streaming completes", async () => {
@@ -840,14 +839,18 @@ describe("NanoGptClient", () => {
 
     const client = new NanoGptClient(fetchImpl as typeof fetch);
 
-    await client.streamChatCompletions({
-      apiKey: "test-key",
-      modelId: "gpt-5.4-mini",
-      messages: [{ role: "user", content: "Hi" }],
-      routingMode: "subscription",
-      onText: () => {},
-    });
+      await expect(
+        client.streamChatCompletions({
+          apiKey: "test-key",
+          modelId: "gpt-5.4-mini",
+          messages: [{ role: "user", content: "Hi" }],
+          routingMode: "subscription",
+          onText: () => {},
+        }),
+      ).rejects.toThrow("NanoGPT stream returned no content after 3 attempts");
 
+      // Reader cleanup still happens via executeStreamingRequest's finally
+      // block on every attempt, even after the error is thrown.
     expect(cancelled).toBe(true);
     expect(released).toBe(true);
   });
@@ -1109,7 +1112,10 @@ describe("NanoGptClient", () => {
     const { logger, entries } = createLoggerSink();
     const fetchImpl = async () =>
       new Response(
-        createReadableStream(["data: [DONE]\n\n"]),
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
         { status: 200 }, // no Content-Type header
       );
 

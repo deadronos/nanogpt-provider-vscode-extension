@@ -154,6 +154,33 @@ function createAbortSignal(token: vscode.CancellationToken): { signal: AbortSign
   };
 }
 
+  // ── Abnormal finish_reason helpers ──────────────────────────────────────────
+
+  /**
+   * Maps SSE `finish_reason` values to user-facing warning messages.
+   * Returns `undefined` for normal termination (`"stop"`, `"tool_calls"`,
+   * or missing/unknown reasons), so the caller only emits a visible
+   * warning for truncation or content-filter events.
+   */
+  function getAbnormalFinishReasonMessage(finishReason: string): string | undefined {
+    switch (finishReason) {
+      case "length":
+        return (
+          "\n\n⚠️ NanoGPT: The response was truncated because it reached the " +
+          "maximum output token limit. Consider reducing the conversation length " +
+          "or increasing the max output tokens in the model settings."
+        );
+      case "content_filter":
+        return (
+          "\n\n⚠️ NanoGPT: The response was blocked by the upstream content " +
+          "filter. The model may have generated content that was flagged by " +
+          "the provider's safety system."
+        );
+      default:
+        return undefined;
+    }
+  }
+
 /**
  * VS Code Language Model Chat Provider backed by NanoGPT.
  *
@@ -646,12 +673,27 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
 
         const { bridgeTelemetry, summary: streamSummary } = result;
 
+        // Surface abnormal finish reasons to the user so they know why the
+        // response stopped (e.g. token limit truncation, content filter).
+        if (streamSummary.finishReason) {
+          const abnormalMessage = getAbnormalFinishReasonMessage(streamSummary.finishReason);
+          if (abnormalMessage) {
+            this.logger.warn(
+              `[${requestId}] reporting abnormal finish_reason to user: "${streamSummary.finishReason}"`,
+            );
+            responseSummary.textDeltas += 1;
+            responseSummary.textChars += abnormalMessage.length;
+            progress.report(new vscode.LanguageModelTextPart(abnormalMessage));
+          }
+        }
+
       this.logger.info(
         `[${requestId}] chat request completed (${formatKeyValuePairs({
           durationMs: Date.now() - startedAt,
           textDeltas: responseSummary.textDeltas,
           reasoningDeltas: responseSummary.reasoningDeltas,
           toolCalls: responseSummary.toolCalls,
+            finishReason: streamSummary.finishReason ?? "none",
         })})`,
       );
       this.logger.debug(
