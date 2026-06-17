@@ -72,7 +72,7 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     expect(models).toHaveLength(1);
     expect(models[0]!.capabilities).toEqual({
       imageInput: true,
-      toolCalling: true,
+        toolCalling: 8,
       family: "test/model",
       tokenizer: "o200k_base",
     });
@@ -232,6 +232,23 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
       "https://nano-gpt.com/api/subscription/v1/models?detailed=true",
     );
     expect(subModels[0]?.id).toBe("moonshotai/kimi-k2.5:thinking");
+  });
+
+  test("buildModelConfigurationSchema avoids unsupported enum-label metadata", () => {
+    const schemaProps = buildModelConfigurationSchema().properties;
+
+    expect(schemaProps.routingMode).toEqual(
+      expect.not.objectContaining({ enumItemLabels: expect.anything() }),
+    );
+    expect(schemaProps.reasoningEffort).toEqual(
+      expect.not.objectContaining({ enumItemLabels: expect.anything() }),
+    );
+    expect(schemaProps.reasoningOutput).toEqual(
+      expect.not.objectContaining({ enumItemLabels: expect.anything() }),
+    );
+    expect(schemaProps.toolCallingStrategy).toEqual(
+      expect.not.objectContaining({ enumItemLabels: expect.anything() }),
+    );
   });
 
   test("buildModelConfigurationSchema properties match package.json languageModelChatProviders contribution", () => {
@@ -498,4 +515,102 @@ describe("NanoGPT core — model mapping, schema, token estimation", () => {
     expect(withTools).toBeGreaterThanOrEqual(20);
     expect(withTools).toBeLessThanOrEqual(31);
   });
+
+    test("uses cl100k_base encoder for accurate text token counts", () => {
+      // "hello world" is 2 tokens in cl100k_base (vs 3 with char heuristic)
+      const count = estimateTokenCount("hello world", undefined, "cl100k_base");
+      expect(count).toBe(2);
+    });
+
+    test("uses o200k_base encoder for accurate text token counts", () => {
+      const count = estimateTokenCount("hello world", undefined, "o200k_base");
+      expect(count).toBe(2);
+    });
+
+    test("falls back to heuristic when tokenizer encoding fails", () => {
+      const count = estimateTokenCount("hello world", undefined, "unknown_encoding" as NanoGptTokenizer);
+      // Falls back to Math.ceil(11/4) = 3
+      expect(count).toBe(3);
+    });
+
+    test("uses tokenizer for message content text counting", () => {
+      // "hello world" (2 tokens) + image (1024) = 1026
+      const count = estimateTokenCount(
+        {
+          role: "user",
+          content: [
+            { value: "hello world" },
+            { data: new Uint8Array([137, 80, 78, 71]), mimeType: "image/png" },
+          ],
+        },
+        undefined,
+        "cl100k_base",
+      );
+      expect(count).toBe(2 + 1024);
+    });
+
+    test("uses tokenizer for tool definition token counting", () => {
+      const message = {
+        role: "user",
+        content: [{ kind: "text", value: "hi" }],
+      };
+
+      const tools = [
+        {
+          name: "read_file",
+          description: "Read a workspace file",
+          inputSchema: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+          } as object,
+        },
+      ];
+
+      const heuristicCount = estimateTokenCount(message, tools);
+      const tokenizerCount = estimateTokenCount(message, tools, "cl100k_base");
+
+      // Tokenizer count should differ from heuristic count
+      expect(tokenizerCount).not.toBe(heuristicCount);
+      // "hi" is 1 token in cl100k_base
+      expect(tokenizerCount).toBeGreaterThan(0);
+    });
+
+    test("different tokenizers may produce different token counts", () => {
+      // Long string with varied content to highlight differences
+      const text = "The quick brown fox jumps over the lazy dog. ".repeat(10);
+      const cl100k = estimateTokenCount(text, undefined, "cl100k_base");
+      const o200k = estimateTokenCount(text, undefined, "o200k_base");
+      const heuristic = estimateTokenCount(text);
+
+      // All should be positive and in a reasonable range
+      expect(cl100k).toBeGreaterThan(0);
+      expect(o200k).toBeGreaterThan(0);
+      // Heuristic should be roughly in the same ballpark
+      expect(Math.abs(cl100k - heuristic)).toBeLessThan(heuristic);
+    });
+
+    test("tokenizer-based message counting includes nested tool result text", () => {
+      const largeText = "a".repeat(4000);
+      const message = {
+        role: "user",
+        content: [
+          { kind: "text", value: "hello" },
+          {
+            callId: "call_1",
+            content: [
+              { kind: "text", value: largeText },
+            ],
+          },
+        ],
+      };
+
+      const heuristic = estimateTokenCount(message);
+      const tokenizer = estimateTokenCount(message, undefined, "cl100k_base");
+
+      // Both should be in the same ballpark (accurate encoding shouldn't
+      // produce wildly different results for repetitive text)
+      expect(tokenizer).toBeGreaterThan(0);
+      expect(Math.abs(tokenizer - heuristic)).toBeLessThan(heuristic);
+    });
 });

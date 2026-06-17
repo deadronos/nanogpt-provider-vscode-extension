@@ -1,140 +1,17 @@
 import * as vscode from "vscode";
 import {
-  buildModelTooltip,
-  buildModelConfigurationSchema,
   type NanoGptReasoningEffort,
   type NanoGptReasoningOutput,
   type NanoGptRoutingMode,
   type NanoGptToolCallingStrategy,
   type VscodeModelMetadata,
 } from "./nanogpt.js";
+import { DEFAULT_MODELS } from "./default-models.js";
 
 export const SECRET_KEY = "nanogpt.apiKey";
 export const VERBOSE_LOGGING_SETTING = "verboseLogging";
 
-/**
- * Default model catalogue surfaced to the VS Code model picker when the
- * provider has no API key and no allowlist is configured. These entries
- * are intentionally minimal capability stubs — they advertise the model
- * identity, an approximate context window, and the standard `o200k_base`
- * tokenizer, but they do **not** claim image input, tool calling, or
- * reasoning support because the real capabilities come from the
- * NanoGPT discovery API and cannot be confirmed offline.
- *
- * The catalogue is grouped by model family so the picker shows a
- * representative spread (small fast model, mid-size reasoning model,
- * long-context model) before the first successful discovery round.
- * If NanoGPT later renames or removes any of these ids, the
- * `mapNanoGptModelsToVscode` allowlist filter is the source of truth —
- * the entries below are best-effort placeholders, not guarantees.
- */
-export const DEFAULT_MODELS: VscodeModelMetadata[] = [
-  {
-    id: "gpt-5.4-mini",
-    name: "GPT-5.4 Mini",
-    family: "gpt-5.4-mini",
-    version: "gpt-5.4-mini",
-    maxInputTokens: 200000,
-    maxOutputTokens: 32768,
-    detail: "NanoGPT (default catalogue)",
-    tooltip: buildModelTooltip("gpt-5.4-mini", 200000, 32768),
-    capabilities: {
-      imageInput: false,
-      toolCalling: false,
-      family: "gpt-5.4-mini",
-      tokenizer: "o200k_base",
-    },
-    reasoning: false,
-    internal: {
-      parallelToolCalls: false,
-    },
-    configurationSchema: buildModelConfigurationSchema(),
-  },
-  {
-    id: "gpt-5.4",
-    name: "GPT-5.4",
-    family: "gpt-5.4",
-    version: "gpt-5.4",
-    maxInputTokens: 200000,
-    maxOutputTokens: 32768,
-    detail: "NanoGPT (default catalogue)",
-    tooltip: buildModelTooltip("gpt-5.4", 200000, 32768),
-    capabilities: {
-      imageInput: false,
-      toolCalling: false,
-      family: "gpt-5.4",
-      tokenizer: "o200k_base",
-    },
-    reasoning: false,
-    internal: {
-      parallelToolCalls: false,
-    },
-    configurationSchema: buildModelConfigurationSchema(),
-  },
-  {
-    id: "claude-sonnet-4.5",
-    name: "Claude Sonnet 4.5",
-    family: "claude-sonnet",
-    version: "claude-sonnet-4.5",
-    maxInputTokens: 200000,
-    maxOutputTokens: 16384,
-    detail: "NanoGPT (default catalogue)",
-    tooltip: buildModelTooltip("claude-sonnet-4.5", 200000, 16384),
-    capabilities: {
-      imageInput: false,
-      toolCalling: false,
-      family: "claude-sonnet",
-      tokenizer: "o200k_base",
-    },
-    reasoning: false,
-    internal: {
-      parallelToolCalls: false,
-    },
-    configurationSchema: buildModelConfigurationSchema(),
-  },
-  {
-    id: "gemini-2.5-pro",
-    name: "Gemini 2.5 Pro",
-    family: "gemini-2.5",
-    version: "gemini-2.5-pro",
-    maxInputTokens: 1000000,
-    maxOutputTokens: 65536,
-    detail: "NanoGPT (default catalogue)",
-    tooltip: buildModelTooltip("gemini-2.5-pro", 1000000, 65536),
-    capabilities: {
-      imageInput: false,
-      toolCalling: false,
-      family: "gemini-2.5",
-      tokenizer: "o200k_base",
-    },
-    reasoning: false,
-    internal: {
-      parallelToolCalls: false,
-    },
-    configurationSchema: buildModelConfigurationSchema(),
-  },
-  {
-    id: "deepseek-r1",
-    name: "DeepSeek R1",
-    family: "deepseek-r1",
-    version: "deepseek-r1",
-    maxInputTokens: 128000,
-    maxOutputTokens: 16384,
-    detail: "NanoGPT (default catalogue)",
-    tooltip: buildModelTooltip("deepseek-r1", 128000, 16384),
-    capabilities: {
-      imageInput: false,
-      toolCalling: false,
-      family: "deepseek-r1",
-      tokenizer: "o200k_base",
-    },
-    reasoning: false,
-    internal: {
-      parallelToolCalls: false,
-    },
-    configurationSchema: buildModelConfigurationSchema(),
-  },
-];
+export { DEFAULT_MODELS };
 
 export type ProviderConfiguration = {
   apiKey?: string;
@@ -202,6 +79,33 @@ export function getReasoningEffort(
   providerConfiguration?: ProviderConfiguration,
   modelOptions?: { readonly [name: string]: unknown },
 ): NanoGptReasoningEffort | undefined {
+  return getReasoningEffortWithStatus(providerConfiguration, modelOptions).value;
+}
+
+/**
+ * Internal resolution result used to surface configuration typos. The
+ * `invalidValue` field is set only when the user configured a non-empty,
+ * non-`auto` value that is not one of the six valid NanoGPT effort levels.
+ * Callers that have a logger should warn once per invalid value.
+ */
+type ReasoningEffortResolution = {
+  value: NanoGptReasoningEffort | undefined;
+  invalidValue?: string;
+};
+
+const VALID_REASONING_EFFORTS: readonly NanoGptReasoningEffort[] = [
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+];
+
+export function getReasoningEffortWithStatus(
+  providerConfiguration?: ProviderConfiguration,
+  modelOptions?: { readonly [name: string]: unknown },
+): ReasoningEffortResolution {
   const value =
     typeof modelOptions?.reasoningEffort === "string"
       ? modelOptions.reasoningEffort
@@ -209,22 +113,15 @@ export function getReasoningEffort(
         ? providerConfiguration.reasoningEffort
         : getConfig().get<string>("reasoningEffort", "auto");
 
-  const validEfforts: NanoGptReasoningEffort[] = [
-    "none",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-  ];
-
   if (value === "auto" || value === undefined) {
-    return undefined;
+    return { value: undefined };
   }
 
-  return validEfforts.includes(value as NanoGptReasoningEffort)
-    ? (value as NanoGptReasoningEffort)
-    : undefined;
+  if (VALID_REASONING_EFFORTS.includes(value as NanoGptReasoningEffort)) {
+    return { value: value as NanoGptReasoningEffort };
+  }
+
+  return { value: undefined, invalidValue: String(value) };
 }
 
 /**
@@ -236,6 +133,24 @@ export function getReasoningOutput(
   providerConfiguration?: ProviderConfiguration,
   modelOptions?: { readonly [name: string]: unknown },
 ): NanoGptReasoningOutput {
+  return getReasoningOutputWithStatus(providerConfiguration, modelOptions).value;
+}
+
+type ReasoningOutputResolution = {
+  value: NanoGptReasoningOutput;
+  invalidValue?: string;
+};
+
+const VALID_REASONING_OUTPUTS: readonly NanoGptReasoningOutput[] = [
+  "hidden",
+  "visible",
+  "native",
+];
+
+export function getReasoningOutputWithStatus(
+  providerConfiguration?: ProviderConfiguration,
+  modelOptions?: { readonly [name: string]: unknown },
+): ReasoningOutputResolution {
   const value =
     typeof modelOptions?.reasoningOutput === "string"
       ? modelOptions.reasoningOutput
@@ -243,7 +158,11 @@ export function getReasoningOutput(
         ? providerConfiguration.reasoningOutput
         : getConfig().get<string>("reasoningOutput", "native");
 
-  return value === "hidden" || value === "visible" || value === "native" ? value : "native";
+  if (VALID_REASONING_OUTPUTS.includes(value as NanoGptReasoningOutput)) {
+    return { value: value as NanoGptReasoningOutput };
+  }
+
+  return { value: "native", invalidValue: typeof value === "string" && value ? value : String(value) };
 }
 
 /**
@@ -254,6 +173,24 @@ export function getToolCallingStrategy(
   providerConfiguration?: ProviderConfiguration,
   modelOptions?: { readonly [name: string]: unknown },
 ): NanoGptToolCallingStrategy {
+  return getToolCallingStrategyWithStatus(providerConfiguration, modelOptions).value;
+}
+
+type ToolCallingStrategyResolution = {
+  value: NanoGptToolCallingStrategy;
+  invalidValue?: string;
+};
+
+const VALID_TOOL_CALLING_STRATEGIES: readonly NanoGptToolCallingStrategy[] = [
+  "native",
+  "auto",
+  "bridge",
+];
+
+export function getToolCallingStrategyWithStatus(
+  providerConfiguration?: ProviderConfiguration,
+  modelOptions?: { readonly [name: string]: unknown },
+): ToolCallingStrategyResolution {
   const value =
     typeof modelOptions?.toolCallingStrategy === "string"
       ? modelOptions.toolCallingStrategy
@@ -261,7 +198,58 @@ export function getToolCallingStrategy(
           ? providerConfiguration.toolCallingStrategy
           : getConfig().get<string>("toolCallingStrategy", "native");
 
-  return value === "auto" || value === "bridge" || value === "native" ? value : "native";
+  if (VALID_TOOL_CALLING_STRATEGIES.includes(value as NanoGptToolCallingStrategy)) {
+    return { value: value as NanoGptToolCallingStrategy };
+  }
+
+  return { value: "native", invalidValue: typeof value === "string" && value ? value : String(value) };
+}
+
+/**
+ * Runtime type-narrower for the VS Code provider configuration payload.
+ * Returns a typed {@link ProviderConfiguration} when every present field
+ * has the expected type; returns `undefined` when the payload is
+ * structurally invalid (e.g. `models` is not an array, `routingMode` is
+ * a number).  Absent fields are simply omitted from the result.
+ *
+ * Call this at the boundary where VS Code hands the extension a raw
+ * provider configuration object so that downstream resolvers receive a
+ * validated shape.  A `undefined` return means the caller should treat
+ * the payload as if no provider configuration was supplied and log a
+ * warning.
+ */
+export function parseProviderConfiguration(
+  input: unknown,
+): ProviderConfiguration | undefined {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return undefined;
+  }
+
+  const raw = input as Record<string, unknown>;
+  const result: ProviderConfiguration = {};
+
+  for (const key of ["apiKey", "routingMode", "provider", "reasoningEffort", "reasoningOutput", "toolCallingStrategy"] as const) {
+    const value = raw[key];
+    if (value === undefined) {
+      continue;
+    }
+    if (typeof value !== "string") {
+      return undefined;
+    }
+    result[key] = value;
+  }
+
+  if ("models" in raw) {
+    const models = raw.models;
+    if (models !== undefined) {
+      if (!Array.isArray(models)) {
+        return undefined;
+      }
+      result.models = models as unknown[];
+    }
+  }
+
+  return result;
 }
 
 /**

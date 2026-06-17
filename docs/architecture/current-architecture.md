@@ -72,23 +72,14 @@ Responsibilities:
 
 - Exports `DEFAULT_MODELS` fallback array (5 models spanning gpt-5.4, claude-sonnet, gemini-2.5, and deepseek families).
 - Resolves API keys from provider configuration and VS Code secret storage by default. Legacy workspace-setting and environment-variable fallbacks are intentionally gated behind an explicit `{ allowInsecureSources: true }` opt-in. Other settings still come from provider configuration and workspace settings.
-- Provides typed getters: `getRoutingMode`, `getProvider`, `getModelAllowlist`, `getReasoningEffort`, `getReasoningOutput`, `getToolCallingStrategy`, `resolveApiKey`, `isVerboseLoggingEnabled`. The reasoning and tool-calling getters also accept an optional `modelOptions` parameter so per-request overrides win over provider configuration and workspace settings.
+- Provides typed getters: `getRoutingMode`, `getProvider`, `getModelAllowlist`, `getReasoningEffort` (delegates to `getReasoningEffortWithStatus`), `getReasoningOutput` (delegates to `getReasoningOutputWithStatus`), `getToolCallingStrategy` (delegates to `getToolCallingStrategyWithStatus`), `resolveApiKey`, `isVerboseLoggingEnabled`. The `*WithStatus` variants return `{ value, invalidValue? }` so callers can surface a one-time warning when a configured value is not one of the recognised options. All reasoning and tool-calling getters also accept an optional `modelOptions` parameter so per-request overrides win over provider configuration and workspace settings.
+- Provides `parseProviderConfiguration()` — a runtime type-narrower that validates the shape of the raw provider configuration payload at the boundary and returns a typed `ProviderConfiguration` or `undefined` on structural mismatch.
 - `resolveApiKey` uses a two-tier safe chain by default: per-model provider configuration → VS Code secret storage. The legacy workspace-setting and env-var fallbacks are available only when explicitly opted in via `{ allowInsecureSources: true }`.
-
-#### `src/logging.ts`
-
-Responsibilities:
-
-- Creates a `NanoGptLogger` backed by the VS Code `LogOutputChannel`.
-- Gates verbose `trace`/`debug` levels on `nanogpt.verboseLogging`.
 
 #### `src/vscode-messaging.ts`
 
 Responsibilities:
 
-- Converts VS Code `LanguageModelChatRequestMessage` → `VscodeLikeMessage` via `toCoreMessages()`.
-- Maps `LanguageModelChatToolMode` via `toToolMode()`.
-- Creates `LanguageModelThinkingPart` via `createThinkingPart()` — with defensive runtime feature detection.
 - Handles `LanguageModelPromptTsxPart` via `getPromptTsxText()`.
 
 ### Transport Layer
@@ -96,9 +87,6 @@ Responsibilities:
 #### `src/client.ts`
 
 This file owns network transport and stream handling.
-
-Responsibilities:
-
 - Builds outbound HTTP calls using `buildNanoGptChatCompletionRequest()` from the core layer.
 - Calls `GET {baseUrl}/models?detailed=true` and `POST {baseUrl}/chat/completions`.
 - Chooses native tool calling, automatic bridge retry, or explicit bridge mode for tool-enabled turns.
@@ -106,10 +94,6 @@ Responsibilities:
 - Reads streaming SSE responses using `NanoGptSseParser`.
 - Emits typed callbacks for text, reasoning, and tool calls.
 - Produces sanitized transport logs through an injected logger interface.
-
-Key design constraints:
-
-- No VS Code imports.
 - No direct knowledge of secret storage or workspace settings.
 - Logging is transport-focused and intentionally sanitized.
 
@@ -137,13 +121,15 @@ Exports:
 
 #### `src/nanogpt-tool-bridge.ts`
 
-Pure tool-calling bridge transforms — no I/O, no VS Code.
+Barrel re-export for the tool-calling bridge subsystem. No VS Code API, no I/O.
 
-Exports:
+Delegates to:
+- `src/bridge-types.ts` — shared types (`NanoGptBridgeToolCall`, `NanoGptToolBridgeParseResult`, `BridgeTurnPayload`).
+- `src/bridge-message-builder.ts` — bridge prompt construction (`buildToolCallingBridgeMessages`, `buildToolCallingBridgeRepairMessages`).
+- `src/bridge-payload-parser.ts` — bridge response entry point (`parseToolCallingBridgeResponse`), delegates to XML and JSON sub-parsers.
+- `src/bridge-xml-parser.ts` — XML-like `<tool_calls>` block extraction.
+- `src/bridge-json-parser.ts` — JSON extraction, bridge turn normalization, tool-call container and argument parsing.
 
-- `buildToolCallingBridgeMessages()` — rewrites tool history into a strict JSON-only bridge contract.
-- `buildToolCallingBridgeRepairMessages()` — builds a JSON-only repair follow-up turn when the bridge response was invalid, or when a `toolMode: "required"` bridge turn returned prose without a usable tool call.
-- `parseToolCallingBridgeResponse()` — normalizes bridge JSON (and JSON code-fenced or XML-like `<tool_calls>` payloads) back into final text or tool-call intents.
 
 #### `src/nanogpt-request.ts`
 
@@ -178,24 +164,12 @@ Barrel module that re-exports from all sub-modules and provides:
 
 Cross-cutting helpers not specific to any layer:
 
-- Type guards: `isPositiveNumber`, `isObject`
-- Encoding: `toBase64`
-- Logging formatting: `formatKeyValuePairs`, `formatRoleCounts`, `formatError`
-- HTTP/abort: `getHeader`, `withTimeout`, `ManagedAbortSignal`
-
-## Manifest-Level Architecture
-
-`package.json` defines the extension's runtime contract with VS Code.
-
 Important manifest decisions:
 
 - `type: module`
 - `engines.vscode: ^1.120.0`
 - `extensionKind: ["ui"]`
 - `capabilities.untrustedWorkspaces.supported: false`
-- activation on `onStartupFinished`
-- provider contribution under `contributes.languageModelChatProviders`
-- workspace settings under `contributes.configuration`
 
 The provider contribution schema and the programmatic schema returned by `buildModelConfigurationSchema()` are intentionally coupled. The tests enforce that their property keys stay aligned.
 
@@ -203,13 +177,6 @@ The provider contribution schema and the programmatic schema returned by `buildM
 
 ### Provider instance
 
-`NanoGptLanguageModelProvider` is instantiated during activation and remains alive for the extension session.
-
-It owns:
-
-- `modelCache: Map<string, VscodeModelMetadata[]>` — keyed on `routingMode` + `sha256(apiKey)` (and a normalized allowlist segment when set), so different API keys or routing surfaces each get an independent cached list. Raw credentials never appear in keys.
-- A persisted mirror of the same cache in `context.globalState` under the versioned key `nanogpt.modelCache` (`version: 1`, `entries: Record<cacheKey, VscodeModelMetadata[]>`). The constructor rehydrates the in-memory map from `globalState`; successful discoveries write back; `clearModelCache` writes `undefined` to the same key. Mismatched versions or malformed entries are ignored defensively.
-- `onDidChangeLanguageModelChatInformation` — fires whenever the discovery cache is cleared (manual refresh, `nanogpt.manage` save/clear, or `nanogpt.apiKey` / `nanogpt.routingMode` / `nanogpt.models` configuration changes) so VS Code re-runs discovery instead of holding stale results.
 - `nextRequestNumber` for request ids like `chat-3` or `discovery-2`
 - references to:
   - `ExtensionContext`

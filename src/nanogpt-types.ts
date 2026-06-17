@@ -65,6 +65,7 @@ export type VscodeLikePart = {
 
 export type VscodeLikeMessage = {
   role: string | number;
+  name?: string | undefined;
   content: readonly VscodeLikePart[];
 };
 
@@ -110,7 +111,7 @@ export type VscodeModelMetadata = {
   detail: string;
   capabilities: {
     imageInput: boolean;
-    toolCalling: boolean;
+      toolCalling: boolean | number;
     family?: string;
     tokenizer?: NanoGptTokenizer;
   };

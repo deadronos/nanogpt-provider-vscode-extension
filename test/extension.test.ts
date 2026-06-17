@@ -104,6 +104,12 @@ describe("NanoGPT VS Code provider", () => {
           bridgeRawTextFallbacks: 0,
           bridgeRequiredFailClosed: 1,
         },
+          summary: {
+              chunkCount: 3,
+            textPartCount: 0,
+            reasoningPartCount: 0,
+            toolCallCount: 0,
+          },
         requiredToolWarning: "Required tool turn failed closed.",
       })),
     };

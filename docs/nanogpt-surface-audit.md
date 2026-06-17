@@ -1,6 +1,6 @@
 # NanoGPT Surface Audit for VS Code
 
-Date: 2026-05-02
+Date: 2026-06-17
 Scope: VS Code language model provider support for chat, reasoning, tool calling, model discovery, and model capabilities.
 Out of scope: image generation, video, audio, embeddings, direct web search, web scraping, standalone memory APIs, payment/deposit APIs, and other non-chat endpoints.
 
@@ -10,6 +10,8 @@ Out of scope: image generation, video, audio, embeddings, direct web search, web
 - [Chat Completions](https://docs.nano-gpt.com/api-reference/endpoint/chat-completion)
 - [Models](https://docs.nano-gpt.com/api-reference/endpoint/models)
 - [Messages](https://docs.nano-gpt.com/api-reference/endpoint/messages)
+- [Tool Calling Diagnostics](https://docs.nano-gpt.com/api-reference/miscellaneous/tool-calling-diagnostics)
+- [Changelog](https://docs.nano-gpt.com/api-reference/miscellaneous/changelog)
 - Extension implementation: `src/extension.ts`, `src/client.ts`, `src/nanogpt.ts`
 
 ## Executive Summary
@@ -17,6 +19,8 @@ Out of scope: image generation, video, audio, embeddings, direct web search, web
 The extension targets the right NanoGPT surface for VS Code: OpenAI-compatible chat completions plus detailed model discovery. The current implementation covers the core request shape, streaming text, streaming reasoning fields, OpenAI-compatible function tools, image input through chat messages, and model capability mapping for vision/reasoning/tool calling.
 
 The largest remaining gaps are capability fidelity and option coverage. NanoGPT exposes more capability flags than VS Code currently receives, including `parallel_tool_calls`, `structured_output`, and `pdf_upload`. The chat endpoint also supports more tool-choice forms and reasoning effort values than the extension currently exposes. These are not blockers for a useful VS Code provider, but they are worth tracking so the extension does not accidentally under-advertise models or prevent supported workflows.
+
+**Key change since May 2026 audit**: NanoGPT now performs server-side validation of model-produced tool calls and can reject requests with HTTP 400 when tool-call data is malformed. The extension has been updated to detect this error and fall back to the text-based bridge mode instead of hard-failing. A new "Tool Calling Diagnostics" opt-in feature allows sharing failed tool-calling turns with NanoGPT support for debugging.
 
 ## Chat Completions
 
@@ -80,7 +84,8 @@ Gaps and risks:
 
 - NanoGPT supports `tool_choice: "none"`, `"auto"`, `"required"`, and object-form tool pinning. The extension only sends `"required"`; auto is represented by omission. VS Code may not expose all choices, but if it does, mapping `none` and object-form pinning would improve fidelity.
 - NanoGPT supports `parallel_tool_calls`. The extension does not send this flag and does not map the `parallel_tool_calls` model capability. VS Code may still handle multiple returned tool calls because the SSE parser accumulates indexed tool calls, but the model is never explicitly asked to use parallel tool calls.
-- NanoGPT documents a 200 KB serialized tools payload limit for Chat Completions and approximately 100 KB per tool call argument for Messages. The extension does not preflight tool spec size. NanoGPT will return a 400 for oversized or invalid specs.
+- NanoGPT documents a 200 KB serialized tools payload limit for Chat Completions and approximately 100 KB per tool call argument for Messages. The extension does not preflight tool spec size. NanoGPT returns a 400 with documented error codes `tool_spec_too_large`, `invalid_tool_spec`, or `invalid_tool_spec_parse` for oversized or invalid specs.
+- **New**: NanoGPT now performs server-side validation of model-produced tool calls and can reject responses with HTTP 400 when the model emits malformed tool-call data. The extension handles this by detecting the error via `isMalformedToolCallError()` and falling back to the text-based JSON bridge contract instead of surfacing a hard failure. Also see the opt-in [Tool Calling Diagnostics](https://docs.nano-gpt.com/api-reference/miscellaneous/tool-calling-diagnostics) feature for sharing failed tool-calling turns with NanoGPT support.
 - The extension drops tool result messages if a VS Code message also contains non-tool content in the same message because `toNanoGptMessages` returns only tool result messages when any tool result is present. That may be acceptable for VS Code's expected message shape, but mixed content would be lossy.
 
 Recommended follow-up:
@@ -158,8 +163,11 @@ Some chat-adjacent features such as web search suffixes, prompt caching, service
 ## Action Checklist
 
 - High: Verify whether `Accept: text/event-stream` should be added to streaming chat requests for stricter docs alignment.
+- **Done (0.0.21)**: Added automatic bridge-mode fallback when NanoGPT API rejects native tool-calling due to malformed tool-call data. The `isMalformedToolCallError()` detector catches the new server-side validation error and retries via the text-based JSON bridge contract.
 - Medium: Expand reasoning effort options to include `none`, `minimal`, and `xhigh`, or document why the VS Code UX intentionally keeps only `auto`, `low`, `medium`, and `high`.
 - Medium: Decide whether paygo discovery should merge or switch to `/api/paid/v1/models` for paid/extras visibility.
 - Medium: Add tests for multiple parallel streamed tool calls and mixed-content tool result edge cases.
+- Low: Investigate the new `POST /api/v1/batches` (batch API) and `POST /api/v1/responses` (Responses API) endpoints for potential VS Code integration.
+- Low: Consider mapping the new documented tool-spec error codes (`tool_spec_too_large`, `invalid_tool_spec`, `invalid_tool_spec_parse`) into user-facing error messages.
 - Low: Rename `buildReasoningConfigurationSchema` now that it includes connection and routing fields.
 - Low: Consider unauthenticated model discovery for first-run browsing before API key configuration.

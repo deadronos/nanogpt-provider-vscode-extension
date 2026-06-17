@@ -17,7 +17,7 @@ Expected responsibilities:
 - output channel creation (`logging.ts`)
 - VS Code request/response part adaptation (`vscode-messaging.ts`)
 
-### Transport Layer (`src/client.ts`)
+### Transport Layer (`src/client.ts`, `src/client-stream.ts`, `src/client-bridge.ts`)
 
 Must remain free of VS Code imports.
 
@@ -25,10 +25,12 @@ Expected responsibilities:
 
 - HTTP requests
 - timeout/cancellation composition (via `utils.ts`)
-- SSE stream reading
+- **retry logic with exponential backoff** for transient failures (network errors, idle timeouts, 0-part responses)
+- **per-chunk idle timeout** (60s default) to detect stalled streams
+- SSE stream reading with **finish_reason tracking** and abnormal-value warnings
 - low-level sanitized transport logging
 
-### Core Transformation Layer (`src/nanogpt.ts`, `src/nanogpt-types.ts`, `src/nanogpt-message.ts`, `src/nanogpt-tool-bridge.ts`, `src/nanogpt-request.ts`, `src/nanogpt-parser.ts`)
+### Core Transformation Layer (`src/nanogpt.ts`, `src/nanogpt-types.ts`, `src/nanogpt-message.ts`, `src/nanogpt-tool-bridge.ts`, `src/bridge-types.ts`, `src/bridge-message-builder.ts`, `src/bridge-payload-parser.ts`, `src/bridge-xml-parser.ts`, `src/bridge-json-parser.ts`, `src/nanogpt-request.ts`, `src/nanogpt-parser.ts`, `src/default-models.ts`)
 
 Must remain free of VS Code imports and network I/O.
 
@@ -37,10 +39,11 @@ Expected responsibilities:
 - pure types (`nanogpt-types.ts`)
 - request builders (`nanogpt-request.ts`)
 - message transforms (`nanogpt-message.ts`)
-- tool-calling bridge transforms (`nanogpt-tool-bridge.ts`)
+- tool-calling bridge transforms (`nanogpt-tool-bridge.ts`, `bridge-types.ts`, `bridge-message-builder.ts`, `bridge-payload-parser.ts`, `bridge-xml-parser.ts`, `bridge-json-parser.ts`)
 - model mapping (`nanogpt.ts`)
 - schema builders (`nanogpt.ts`)
 - SSE parsing helpers (`nanogpt-parser.ts`)
+- default model catalogue (`default-models.ts`)
 
 ### Shared Utilities (`src/utils.ts`)
 
@@ -138,18 +141,10 @@ May log:
 
 There are exactly two supported routing modes today:
 
-- `subscription`
-- `paygo`
 
 Endpoint mapping:
 
 - `subscription` -> `/api/subscription/v1`
-- `paygo` -> `/api/v1`
-
-`X-Provider` is only sent for `paygo` and only when `provider.trim()` is non-empty.
-
-## 7. Reasoning Contract
-
 `reasoningEffort: "auto"` is not sent to NanoGPT.
 
 Invariant:
@@ -157,13 +152,11 @@ Invariant:
 - `auto` is a local sentinel meaning omit the field
 
 Supported transmitted effort values:
-
-- `none`
-- `minimal`
-- `low`
-- `medium`
 - `high`
+
 - `xhigh`
+
+When a configured value is non-empty, not `"auto"`, and not one of the six valid levels, the extension logs a one-time deduplicated warning per invalid value (keyed on the provider instance lifetime) and falls back to the model default by omitting `reasoning_effort` from the request.
 
 Current response-field compatibility:
 
@@ -189,10 +182,11 @@ Invariants:
 - malformed streamed tool arguments degrade to `{}` rather than crash the stream
 - `toolCallingStrategy` is extension-local and accepts `native | auto | bridge`
 - `toolCallingStrategy` defaults to `native` when omitted or invalid; `auto` and `bridge` are explicit opt-in alternatives
-- `native` with tools buffers text and reasoning deltas and suppresses thin scaffolding preambles (e.g. "Let me gather related files..") when the stream also contains tool calls, to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams
-- `auto` retries at most once, and only when a tool-enabled native turn yields no tool calls and either no visible text or only low-signal scaffolding text
+- `native` and `auto` with tools both buffer the native turn through a unified `shouldBufferNativeTurn` path and suppress thin scaffolding preambles (e.g. "Let me gather related files..") when the stream also contains tool calls, to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams
+- `auto` additionally retries at most once via the bridge path when a tool-enabled native turn yields no tool calls and either no visible text or only low-signal scaffolding text
 - `bridge` rewrites tool history into plain messages plus a strict JSON-only system contract, and preserves `toolMode: "required"` through prompt instructions rather than native `tool_choice`
 - malformed bridged replies get one JSON-only repair retry before the client decides whether to parse tool calls, accept a final bridged answer, or fall back
+- bridged-turn reasoning deltas are buffered per-turn (via `reasoningChunks` on `BridgeTurnResult`) and only emitted on the final committed bridge turn; reasoning from a discarded repair-retry turn does not leak to the caller
 - when a bridged model reply still contains visible prose but omits the required JSON object after the repair retry, the client surfaces an explicit raw-text fallback warning only for non-required tool turns
 - when `toolMode: "required"` is active and the bridged model reply still does not contain any usable tool calls after the repair retry, the client returns a required-turn warning signal/string and the provider emits the warning `LanguageModelTextPart` instead of surfacing raw prose
 - pending streamed tool calls are flushed at EOF via `flushPendingToolCalls()` so providers that omit `[DONE]` do not silently lose tool calls
@@ -242,6 +236,18 @@ Persisted cache contract:
 - persisted cache failures (read or write) are logged at warn level and never thrown into the discovery path
 - configuration changes to `nanogpt.apiKey`, `nanogpt.routingMode`, or `nanogpt.models` clear both the in-memory and persisted caches
 
+### Persisted warning dedup sets (cross-reload)
+
+Invalid-value warning dedup sets (`warnedInvalidReasoningEfforts`, `warnedInvalidReasoningOutputs`, `warnedInvalidToolCallingStrategies`) are persisted to `context.workspaceState` so that a user who reloads the extension window is not re-warned for the same configuration typo. Hydration happens in `hydrateWarnedSets()` during construction; persistence is fire-and-forget via `persistWarnedSet()` when a new invalid value is encountered.
+
+Persisted warning contract:
+
+- keys: `nanogpt.warnedInvalidReasoningEfforts`, `nanogpt.warnedInvalidReasoningOutputs`, `nanogpt.warnedInvalidToolCallingStrategies`
+- values: `string[]` (the deduplicated set of invalid configured values encountered)
+- read failures are silently ignored and the in-memory Set is simply empty
+- write failures are silently caught and ignored (the warning has already been logged to the output channel)
+- the Sets are never cleared by the provider — they accumulate over the extension lifetime and across reloads; users who fix the typo will simply never see the warning again
+
 ## 11. Testing Contract
 
 Current automated test split:
@@ -272,7 +278,7 @@ When changing this repository, verify all relevant items below.
 
 - If you add or change provider config fields, update:
   - `src/nanogpt.ts` (type + schema)
-  - `src/config.ts` (validator)
+  - `src/config.ts` (validator — note: `getReasoningEffort` delegates to `getReasoningEffortWithStatus`, `getReasoningOutput` delegates to `getReasoningOutputWithStatus`, `getToolCallingStrategy` delegates to `getToolCallingStrategyWithStatus`; all three `*WithStatus` variants return `{ value, invalidValue? }` for invalid-value tracking and warning deduplication)
   - `package.json` (contribution schema)
   - tests
 - If you change tool-calling strategy or bridge behavior, update:

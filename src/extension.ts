@@ -5,10 +5,10 @@ import {
   DEFAULT_MODELS,
   getModelAllowlist,
   getProvider,
-  getReasoningEffort,
-  getReasoningOutput,
+  getReasoningEffortWithStatus,
+    getReasoningOutputWithStatus,
   getRoutingMode,
-  getToolCallingStrategy,
+    getToolCallingStrategyWithStatus,
   isVerboseLoggingEnabled,
   resolveApiKey,
   SECRET_KEY,
@@ -17,11 +17,31 @@ import {
 } from "./config.js";
 import { createLogger, OUTPUT_CHANNEL_NAME } from "./logging.js";
 import { toCoreMessages, toToolMode, createThinkingPart } from "./vscode-messaging.js";
-import { formatKeyValuePairs, formatRoleCounts, formatError, isObject, sha256Hex } from "./utils.js";
+import { formatKeyValuePairs, formatRoleCounts, formatError } from "./utils.js";
+import {
+  createModelCacheKey,
+  deriveFamilyTokensFromAllowlist,
+  hydrateModelCache,
+  PERSISTED_MODEL_CACHE_KEY,
+  persistModelCache,
+  type PersistedModelCache,
+} from "./provider-cache.js";
+import {
+  logRuntimeModelResolution,
+  summarizeMessages,
+  summarizeRuntimeModel,
+  summarizeTools,
+} from "./provider-logging-helpers.js";
+import {
+  hydrateWarnedSets,
+  PERSISTED_INVALID_REASONING_EFFORTS_KEY,
+  PERSISTED_INVALID_REASONING_OUTPUTS_KEY,
+  PERSISTED_INVALID_TOOL_CALLING_STRATEGIES_KEY,
+  persistWarnedSet,
+  warnOnceInvalidConfig,
+} from "./provider-state.js";
 
 const VENDOR_ID = "nanogpt";
-const PERSISTED_MODEL_CACHE_KEY = "nanogpt.modelCache";
-const PERSISTED_MODEL_CACHE_VERSION = 1;
 const RESET_COMMAND_ID = "nanogpt.resetConfiguration";
 const RESET_CONFIRM_ACTION = "Reset NanoGPT";
 const RESET_MANAGE_API_KEY_ACTION = "Manage API Key";
@@ -42,11 +62,6 @@ const RESETTABLE_CONFIGURATION_KEYS = [
   "toolCallingStrategy",
   VERBOSE_LOGGING_SETTING,
 ] as const;
-
-type PersistedModelCache = {
-  version: number;
-  entries: Record<string, VscodeModelMetadata[]>;
-};
 
 type ChatProviderApi = {
   provideLanguageModelChatInformation(
@@ -71,148 +86,6 @@ type ChatProviderApi = {
     token: vscode.CancellationToken,
   ): Promise<number>;
 };
-
-type MessageSummary = {
-  messageCount: number;
-  roleCounts: Record<string, number>;
-  textParts: number;
-  dataParts: number;
-  toolCallParts: number;
-  toolResultParts: number;
-};
-
-type RuntimeLanguageModelLike = vscode.LanguageModelChat & {
-  vendor?: unknown;
-  tokenizer?: unknown;
-  capabilities?: unknown;
-};
-
-function summarizeMessages(
-  messages: readonly vscode.LanguageModelChatRequestMessage[],
-): MessageSummary {
-  const summary: MessageSummary = {
-    messageCount: messages.length,
-    roleCounts: {},
-    textParts: 0,
-    dataParts: 0,
-    toolCallParts: 0,
-    toolResultParts: 0,
-  };
-
-  for (const message of messages) {
-    const role = String(message.role);
-    summary.roleCounts[role] = (summary.roleCounts[role] ?? 0) + 1;
-
-    for (const part of message.content) {
-      if (part instanceof vscode.LanguageModelTextPart) {
-        summary.textParts += 1;
-        continue;
-      }
-
-      if (part instanceof vscode.LanguageModelDataPart) {
-        summary.dataParts += 1;
-        continue;
-      }
-
-      if (part instanceof vscode.LanguageModelToolCallPart) {
-        summary.toolCallParts += 1;
-        continue;
-      }
-
-      if (part instanceof vscode.LanguageModelToolResultPart) {
-        summary.toolResultParts += 1;
-      }
-    }
-  }
-
-  return summary;
-}
-
-function summarizeTools(
-  tools: readonly vscode.LanguageModelChatTool[] | undefined,
-): string {
-  if (!tools || tools.length === 0) {
-    return "count=0";
-  }
-
-  return formatKeyValuePairs({
-    count: tools.length,
-    names: tools.map((tool) => tool.name).join("|") || "none",
-  });
-}
-
-function getRuntimeCapabilities(
-  model: RuntimeLanguageModelLike,
-): Record<string, unknown> | undefined {
-  return isObject(model.capabilities) ? model.capabilities : undefined;
-}
-
-function createModelCacheKey(
-  apiKey: string,
-  routingMode: string,
-  allowlistKey?: string,
-  families?: readonly string[],
-): string {
-  const apiKeyHash = sha256Hex(apiKey);
-  const allowlistSegment = allowlistKey ?? "*";
-  const familySegment = families && families.length > 0
-    ? families.slice().sort().join(",")
-    : "*";
-  return `${routingMode}:${apiKeyHash}:${allowlistSegment}:${familySegment}`;
-}
-
-/**
- * Derives a stable set of "model family" tokens from an allowlist of
- * model ids. The heuristic strips size/quantization suffixes so that
- * `gpt-5.4-mini` and `gpt-5.4` collapse to the same `gpt-5.4` family
- * token, and `claude-sonnet-4.5` collapses to `claude-sonnet`. This
- * is good enough to partition the discovery cache by tokenization
- * family for common cases without requiring a client-side model
- * registry; ambiguous ids fall through to the original id.
- */
-function deriveFamilyTokensFromAllowlist(allowlist: readonly string[]): string[] {
-  const families = new Set<string>();
-  for (const raw of allowlist) {
-    const id = String(raw ?? "").trim();
-    if (!id) {
-      continue;
-    }
-    // Strip trailing size/quantization markers such as `-mini`, `-pro`,
-    // `-32k`, `-instruct`, `-chat`, `-base`, `-preview`.
-    const stripped = id.replace(
-      /[-_.](mini|pro|max|nano|tiny|small|medium|large|xlarge|xxl|instruct|chat|base|preview|preview-\d+|\d+[kmb](?:-context)?|\d{4,5})$/i,
-      "",
-    );
-    families.add(stripped || id);
-  }
-  return Array.from(families);
-}
-
-function getRuntimeCapabilityValue(model: RuntimeLanguageModelLike, key: string): string {
-  const capabilities = getRuntimeCapabilities(model);
-  if (!capabilities) {
-    return "undefined";
-  }
-
-  const value = capabilities[key];
-  return value === undefined ? "undefined" : String(value);
-}
-
-function summarizeRuntimeModel(model: RuntimeLanguageModelLike): string {
-  const capabilities = getRuntimeCapabilities(model);
-  const capabilityKeys = capabilities ? Object.keys(capabilities).join("|") || "none" : "none";
-
-  return formatKeyValuePairs({
-    id: model.id,
-    vendor: typeof model.vendor === "string" ? model.vendor : "unknown",
-    family: model.family,
-    version: model.version,
-    tokenizer: model.tokenizer === undefined ? "undefined" : String(model.tokenizer),
-    capabilityKeys,
-    capabilityFamily: getRuntimeCapabilityValue(model, "family"),
-    capabilityTokenizer: getRuntimeCapabilityValue(model, "tokenizer"),
-  });
-}
 
 async function clearOwnedConfiguration(config: vscode.WorkspaceConfiguration): Promise<number> {
   let clearedEntries = 0;
@@ -263,29 +136,6 @@ async function openLanguageModelManagement(logger: NanoGptLogger): Promise<boole
   }
 }
 
-async function logRuntimeModelResolution(logger: NanoGptLogger): Promise<void> {
-  try {
-    const models = await vscode.lm.selectChatModels({ vendor: VENDOR_ID });
-    logger.debug(`[runtime] resolved NanoGPT models (${formatKeyValuePairs({ count: models.length })})`);
-
-    for (const model of models.slice(0, 5)) {
-      let helloTokenCount = "error";
-
-      try {
-        helloTokenCount = String(await model.countTokens("hello"));
-      } catch (error) {
-        helloTokenCount = `error:${formatError(error)}`;
-      }
-
-      logger.debug(
-        `[runtime] selected model (${summarizeRuntimeModel(model as RuntimeLanguageModelLike)}, helloTokens=${helloTokenCount})`,
-      );
-    }
-  } catch (error) {
-    logger.warn(`[runtime] failed to resolve NanoGPT models: ${formatError(error)}`);
-  }
-}
-
 /**
  * Creates an `AbortSignal` that mirrors the VS Code cancellation token.
  * Aborts immediately if the token is already cancelled.
@@ -301,6 +151,33 @@ function createAbortSignal(token: vscode.CancellationToken): { signal: AbortSign
     dispose: () => disposable.dispose(),
   };
 }
+
+  // ── Abnormal finish_reason helpers ──────────────────────────────────────────
+
+  /**
+   * Maps SSE `finish_reason` values to user-facing warning messages.
+   * Returns `undefined` for normal termination (`"stop"`, `"tool_calls"`,
+   * or missing/unknown reasons), so the caller only emits a visible
+   * warning for truncation or content-filter events.
+   */
+  function getAbnormalFinishReasonMessage(finishReason: string): string | undefined {
+    switch (finishReason) {
+      case "length":
+        return (
+          "\n\n⚠️ NanoGPT: The response was truncated because it reached the " +
+          "maximum output token limit. Consider reducing the conversation length " +
+          "or increasing the max output tokens in the model settings."
+        );
+      case "content_filter":
+        return (
+          "\n\n⚠️ NanoGPT: The response was blocked by the upstream content " +
+          "filter. The model may have generated content that was flagged by " +
+          "the provider's safety system."
+        );
+      default:
+        return undefined;
+    }
+  }
 
 /**
  * VS Code Language Model Chat Provider backed by NanoGPT.
@@ -320,6 +197,22 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
   private readonly modelCache = new Map<string, VscodeModelMetadata[]>();
   private readonly modelChangeEmitter = new vscode.EventEmitter<void>();
   private nextRequestNumber = 0;
+  /**
+   * Tracks invalid `reasoningEffort` values already warned about so a typo
+   * does not spam the output log on every chat turn. Cleared implicitly on
+   * extension reload.
+   */
+  private readonly warnedInvalidReasoningEfforts = new Set<string>();
+    /**
+     * Tracks invalid `reasoningOutput` values already warned about.
+     * Persisted to `workspaceState` so the warning survives extension reloads.
+     */
+    private readonly warnedInvalidReasoningOutputs = new Set<string>();
+    /**
+     * Tracks invalid `toolCallingStrategy` values already warned about.
+     * Persisted to `workspaceState` so the warning survives extension reloads.
+     */
+    private readonly warnedInvalidToolCallingStrategies = new Set<string>();
   readonly onDidChangeLanguageModelChatInformation = this.modelChangeEmitter.event;
   private static readonly onboardingWarningMessage =
     "NanoGPT API key is required to discover models. You can manage provider settings or enter a key directly.";
@@ -336,6 +229,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     private readonly logger: NanoGptLogger,
   ) {
     this.hydrateModelCache();
+      this.hydrateWarnedSets();
   }
 
   /**
@@ -344,33 +238,30 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
    * list. Defensive against malformed or version-mismatched payloads.
    */
   private hydrateModelCache(): void {
-    const globalState = this.context.globalState;
-    if (!globalState) {
-      return;
-    }
+      hydrateModelCache(this.context.globalState, this.modelCache, this.logger);
+  }
 
-    try {
-      const persisted = globalState.get<PersistedModelCache>(PERSISTED_MODEL_CACHE_KEY);
-      if (!persisted || persisted.version !== PERSISTED_MODEL_CACHE_VERSION) {
-        return;
-      }
-
-      let entryCount = 0;
-      for (const [key, value] of Object.entries(persisted.entries ?? {})) {
-        if (Array.isArray(value)) {
-          this.modelCache.set(key, value as VscodeModelMetadata[]);
-          entryCount += 1;
-        }
-      }
-
-      this.logger.debug(
-        `[provider] model cache hydrated from globalState (${formatKeyValuePairs({ entryCount })})`,
+  /**
+   * Restores the invalid-value warning dedup sets from
+   * {@link vscode.ExtensionContext.workspaceState} so that users who
+   * reload the extension window do not see the same configuration
+   * typo warning every time.
+   */
+  private hydrateWarnedSets(): void {
+      hydrateWarnedSets(
+        this.context.workspaceState,
+        this.warnedInvalidReasoningEfforts,
+        this.warnedInvalidReasoningOutputs,
+        this.warnedInvalidToolCallingStrategies,
       );
-    } catch (error) {
-      this.logger.warn(
-        `[provider] failed to hydrate model cache from globalState: ${formatError(error)}`,
-      );
-    }
+  }
+
+  /**
+   * Persists an updated warned-values set to workspaceState. Fire-and-forget;
+   * failures are intentionally silent so chat throughput is never affected.
+   */
+  private persistWarnedSet(key: string, values: Set<string>): void {
+      persistWarnedSet(this.context.workspaceState, key, values);
   }
 
   /**
@@ -380,26 +271,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
    * the calling discovery path is not affected by persistence failures.
    */
   private async persistModelCache(): Promise<void> {
-    const globalState = this.context.globalState;
-    if (!globalState) {
-      return;
-    }
-
-    try {
-      const entries: Record<string, VscodeModelMetadata[]> = {};
-      for (const [key, value] of this.modelCache.entries()) {
-        entries[key] = value;
-      }
-
-      await globalState.update(PERSISTED_MODEL_CACHE_KEY, {
-        version: PERSISTED_MODEL_CACHE_VERSION,
-        entries,
-      });
-    } catch (error) {
-      this.logger.warn(
-        `[provider] failed to persist model cache to globalState: ${formatError(error)}`,
-      );
-    }
+      await persistModelCache(this.context.globalState, this.modelCache, this.logger);
   }
 
   private notifyModelCatalogChanged(reason: string): void {
@@ -647,12 +519,63 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     const apiKey = await resolveApiKey(this.context, options.configuration);
     if (!apiKey) {
       this.logger.warn(`[${requestId}] chat request blocked: API key is not configured`);
-      throw new vscode.LanguageModelError("NanoGPT API key is not configured");
+      // Use the NotFound factory so downstream consumers can distinguish a
+      // missing-credential failure (code "NotFound") from a generic transport
+      // error (code "Unknown") via `LanguageModelError.code`.
+      throw vscode.LanguageModelError.NotFound("NanoGPT API key is not configured");
     }
 
-    const reasoningOutput = getReasoningOutput(options.configuration, options.modelOptions);
-    const reasoningEffort = getReasoningEffort(options.configuration, options.modelOptions);
-    const toolCallingStrategy = getToolCallingStrategy(options.configuration, options.modelOptions);
+    const reasoningOutputResolution = getReasoningOutputWithStatus(
+      options.configuration,
+      options.modelOptions,
+    );
+    const reasoningOutput = reasoningOutputResolution.value;
+    if (reasoningOutputResolution.invalidValue) {
+        warnOnceInvalidConfig({
+          logger: this.logger,
+          warnedSet: this.warnedInvalidReasoningOutputs,
+          persistKey: PERSISTED_INVALID_REASONING_OUTPUTS_KEY,
+          workspaceState: this.context.workspaceState,
+          fieldName: "reasoningOutput",
+          invalidValue: reasoningOutputResolution.invalidValue,
+          validValues: "hidden, visible, native",
+          fallbackDescription: "native",
+        });
+    }
+    const reasoningEffortResolution = getReasoningEffortWithStatus(
+      options.configuration,
+      options.modelOptions,
+    );
+    const reasoningEffort = reasoningEffortResolution.value;
+    if (reasoningEffortResolution.invalidValue) {
+        warnOnceInvalidConfig({
+          logger: this.logger,
+          warnedSet: this.warnedInvalidReasoningEfforts,
+          persistKey: PERSISTED_INVALID_REASONING_EFFORTS_KEY,
+          workspaceState: this.context.workspaceState,
+          fieldName: "reasoningEffort",
+          invalidValue: reasoningEffortResolution.invalidValue,
+          validValues: "none, minimal, low, medium, high, xhigh",
+          fallbackDescription: "the model default",
+        });
+    }
+    const toolCallingStrategyResolution = getToolCallingStrategyWithStatus(
+      options.configuration,
+      options.modelOptions,
+    );
+    const toolCallingStrategy = toolCallingStrategyResolution.value;
+    if (toolCallingStrategyResolution.invalidValue) {
+        warnOnceInvalidConfig({
+          logger: this.logger,
+          warnedSet: this.warnedInvalidToolCallingStrategies,
+          persistKey: PERSISTED_INVALID_TOOL_CALLING_STRATEGIES_KEY,
+          workspaceState: this.context.workspaceState,
+          fieldName: "toolCallingStrategy",
+          invalidValue: toolCallingStrategyResolution.invalidValue,
+          validValues: "native, auto, bridge",
+          fallbackDescription: "native",
+        });
+    }
     const routingMode = getRoutingMode(options.configuration);
     const provider = getProvider(options.configuration);
     const toolMode =
@@ -710,6 +633,7 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
         reasoningEffort,
         reasoningOutput,
         toolCallingStrategy,
+        maxInputTokens: model.maxInputTokens,
         parallelToolCalls: model.internal?.parallelToolCalls,
         signal: abortSignal.signal,
         requestId,
@@ -745,17 +669,21 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
         progress.report(new vscode.LanguageModelTextPart(result.requiredToolWarning));
       }
 
-      const rawBridgeTelemetry =
-        typeof result?.bridgeTelemetry === "object" && result.bridgeTelemetry !== null
-          ? result.bridgeTelemetry
-          : {};
-      const bridgeTelemetry = {
-        bridgeRepairAttempts: 0,
-        bridgeRepairSuccesses: 0,
-        bridgeRawTextFallbacks: 0,
-        bridgeRequiredFailClosed: 0,
-        ...rawBridgeTelemetry,
-      };
+        const { bridgeTelemetry, summary: streamSummary } = result;
+
+        // Surface abnormal finish reasons to the user so they know why the
+        // response stopped (e.g. token limit truncation, content filter).
+        if (streamSummary.finishReason) {
+          const abnormalMessage = getAbnormalFinishReasonMessage(streamSummary.finishReason);
+          if (abnormalMessage) {
+            this.logger.warn(
+              `[${requestId}] reporting abnormal finish_reason to user: "${streamSummary.finishReason}"`,
+            );
+            responseSummary.textDeltas += 1;
+            responseSummary.textChars += abnormalMessage.length;
+            progress.report(new vscode.LanguageModelTextPart(abnormalMessage));
+          }
+        }
 
       this.logger.info(
         `[${requestId}] chat request completed (${formatKeyValuePairs({
@@ -763,12 +691,17 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
           textDeltas: responseSummary.textDeltas,
           reasoningDeltas: responseSummary.reasoningDeltas,
           toolCalls: responseSummary.toolCalls,
+            finishReason: streamSummary.finishReason ?? "none",
         })})`,
       );
       this.logger.debug(
         `[${requestId}] chat request result details (${formatKeyValuePairs({
           textChars: responseSummary.textChars,
           reasoningChars: responseSummary.reasoningChars,
+          streamChunks: streamSummary.chunkCount,
+          streamTextParts: streamSummary.textPartCount,
+          streamReasoningParts: streamSummary.reasoningPartCount,
+          streamToolCalls: streamSummary.toolCallCount,
           bridgeRepairAttempts: bridgeTelemetry.bridgeRepairAttempts,
           bridgeRepairSuccesses: bridgeTelemetry.bridgeRepairSuccesses,
           bridgeRawTextFallbacks: bridgeTelemetry.bridgeRawTextFallbacks,
@@ -799,11 +732,12 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     text: string | vscode.LanguageModelChatRequestMessage,
     _token: vscode.CancellationToken,
   ): Promise<number> {
+      const tokenizer = _model.capabilities.tokenizer;
     if (typeof text === "string") {
-      return estimateTokenCount(text);
+        return estimateTokenCount(text, undefined, tokenizer);
     }
 
-    return estimateTokenCount(toCoreMessages([text])[0]);
+      return estimateTokenCount(toCoreMessages([text])[0], undefined, tokenizer);
   }
 
   /**

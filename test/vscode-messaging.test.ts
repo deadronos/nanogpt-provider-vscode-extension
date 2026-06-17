@@ -126,4 +126,36 @@ describe("VS Code messaging compatibility", () => {
     expect(module.toToolMode((vscode as typeof vscode & { LanguageModelChatToolMode?: { Required?: unknown; Auto?: unknown } }).LanguageModelChatToolMode?.Auto)).toBeUndefined();
     expect(module.toToolMode(undefined)).toBeUndefined();
   });
+
+    test("forwards message.name through toCoreMessages", async () => {
+      const { module, vscode } = await loadVscodeMessagingModule();
+
+      const TextPart = (vscode as typeof vscode & { LanguageModelTextPart?: new (...args: never[]) => unknown }).LanguageModelTextPart;
+
+      const messages = [
+        {
+          role: "user",
+          name: "copilot",
+          content: [new TextPart("hello")],
+        },
+        {
+          role: "assistant",
+          name: undefined,
+          content: [new TextPart("hi there")],
+        },
+      ];
+
+      expect(module.toCoreMessages(messages as unknown as Parameters<typeof module.toCoreMessages>[0])).toEqual([
+        {
+          role: "user",
+          name: "copilot",
+          content: [{ value: "hello" }],
+        },
+        {
+          role: "assistant",
+          name: undefined,
+          content: [{ value: "hi there" }],
+        },
+      ]);
+    });
 });

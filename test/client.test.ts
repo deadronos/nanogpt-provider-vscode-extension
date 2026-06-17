@@ -799,17 +799,16 @@ describe("NanoGptClient", () => {
       new Response(null, { status: 200 });
 
     const client = new NanoGptClient(fetchImpl as typeof fetch);
-    const texts: string[] = [];
 
-    await client.streamChatCompletions({
+      await expect(
+        client.streamChatCompletions({
       apiKey: "test-key",
       modelId: "gpt-5.4-mini",
       messages: [{ role: "user", content: "Hi" }],
       routingMode: "subscription",
-      onText: (t) => texts.push(t),
-    });
-
-    expect(texts).toEqual([]);
+          onText: () => {},
+        }),
+      ).rejects.toThrow("NanoGPT stream returned no content after 3 attempts");
   });
 
   test("releases the response reader after streaming completes", async () => {
@@ -840,14 +839,18 @@ describe("NanoGptClient", () => {
 
     const client = new NanoGptClient(fetchImpl as typeof fetch);
 
-    await client.streamChatCompletions({
-      apiKey: "test-key",
-      modelId: "gpt-5.4-mini",
-      messages: [{ role: "user", content: "Hi" }],
-      routingMode: "subscription",
-      onText: () => {},
-    });
+      await expect(
+        client.streamChatCompletions({
+          apiKey: "test-key",
+          modelId: "gpt-5.4-mini",
+          messages: [{ role: "user", content: "Hi" }],
+          routingMode: "subscription",
+          onText: () => {},
+        }),
+      ).rejects.toThrow("NanoGPT stream returned no content after 3 attempts");
 
+      // Reader cleanup still happens via executeStreamingRequest's finally
+      // block on every attempt, even after the error is thrown.
     expect(cancelled).toBe(true);
     expect(released).toBe(true);
   });
@@ -1109,7 +1112,10 @@ describe("NanoGptClient", () => {
     const { logger, entries } = createLoggerSink();
     const fetchImpl = async () =>
       new Response(
-        createReadableStream(["data: [DONE]\n\n"]),
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
         { status: 200 }, // no Content-Type header
       );
 
@@ -1379,4 +1385,271 @@ describe("NanoGptClient", () => {
 
     expect(texts).toEqual(["Here is the project overview."]);
   });
+
+  test("retries on transient network error and succeeds on second attempt", async () => {
+    const { logger, entries } = createLoggerSink();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () => {
+        throw new Error("fetch failed: network error");
+      })
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"Recovered"}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const texts: string[] = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Hi" }],
+      routingMode: "subscription",
+      onText: (t) => texts.push(t),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(texts).toEqual(["Recovered"]);
+    const retryLog = entries.find((e) => e.includes("retrying in"));
+    expect(retryLog).toBeDefined();
+  });
+
+  test("retries on 0-part response and succeeds on second attempt", async () => {
+    const { logger } = createLoggerSink();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream(["data: [DONE]\n\n"]),
+          { status: 200 },
+        ),
+      )
+      .mockImplementationOnce(async () =>
+        new Response(
+          createReadableStream([
+            'data: {"choices":[{"delta":{"content":"Second try"}}]}\n\n',
+            "data: [DONE]\n\n",
+          ]),
+          { status: 200 },
+        ),
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const texts: string[] = [];
+
+    await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Hi" }],
+      routingMode: "subscription",
+      onText: (t) => texts.push(t),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(texts).toEqual(["Second try"]);
+  });
+
+  test("does not retry on non-retryable HTTP errors like 401", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementationOnce(async () =>
+      new Response(
+        JSON.stringify({ error: { message: "Invalid API key", type: "auth_error", code: "invalid_key" } }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+
+    await expect(
+      client.streamChatCompletions({
+        apiKey: "bad-key",
+        modelId: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "Hi" }],
+        routingMode: "subscription",
+        onText: () => {},
+      }),
+    ).rejects.toThrow(/Invalid API key/);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not retry when signal is already aborted", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementationOnce(async () => {
+      throw new Error("fetch failed: network error");
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+
+    await expect(
+      client.streamChatCompletions({
+        apiKey: "test-key",
+        modelId: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "Hi" }],
+        routingMode: "subscription",
+        signal: controller.signal,
+        onText: () => {},
+      }),
+    ).rejects.toThrow();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test("exhausts retries and throws after max attempts on persistent failure", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => {
+      throw new Error("fetch failed: network error");
+    });
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch);
+
+    await expect(
+      client.streamChatCompletions({
+        apiKey: "test-key",
+        modelId: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "Hi" }],
+        routingMode: "subscription",
+        onText: () => {},
+      }),
+    ).rejects.toThrow(/fetch failed/);
+
+    // 1 initial + 2 retries = 3 total
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  test("returns finishReason in summary for normal stop", async () => {
+    const { logger } = createLoggerSink();
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":"stop"}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+        { status: 200 },
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const result = await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Hi" }],
+      routingMode: "subscription",
+      onText: () => {},
+    });
+
+    expect(result.summary.finishReason).toBe("stop");
+  });
+
+  test("warns on abnormal finish_reason 'length' in summary", async () => {
+    const { logger, entries } = createLoggerSink();
+    const fetchImpl = async () =>
+      new Response(
+        createReadableStream([
+          'data: {"choices":[{"delta":{"content":"partial text"},"finish_reason":"length"}]}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+        { status: 200 },
+      );
+
+    const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+    const result = await client.streamChatCompletions({
+      apiKey: "test-key",
+      modelId: "gpt-5.4-mini",
+      messages: [{ role: "user", content: "Long story" }],
+      routingMode: "subscription",
+      requestId: "finish-length",
+      onText: () => {},
+    });
+
+    expect(result.summary.finishReason).toBe("length");
+    const warnLog = entries.find((e) => e.includes("finish-length") && e.includes("abnormal finish_reason"));
+    expect(warnLog).toBeDefined();
+  });
+
+    test("falls back to bridge mode when native tool-calling is rejected as malformed", async () => {
+      const { logger, entries } = createLoggerSink();
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockImplementationOnce(async () =>
+          new Response(
+            JSON.stringify({
+              error: { message: "The model returned malformed tool-call data.", type: "invalid_request_error", code: "400" },
+            }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          ),
+        )
+        .mockImplementationOnce(async () =>
+          new Response(
+            createReadableStream([
+              'data: {"choices":[{"delta":{"content":"{\\"v\\":1,\\"mode\\":\\"tool\\",\\"message\\":\\"Let me read that file.\\",\\"tool_calls\\":[{\\"name\\":\\"read_file\\",\\"arguments\\":{\\"path\\":\\"README.md\\"}}]}"}}]}\n\n',
+              "data: [DONE]\n\n",
+            ]),
+            { status: 200 },
+          ),
+        );
+
+      const client = new NanoGptClient(fetchImpl as typeof fetch, logger);
+      const texts: string[] = [];
+      const toolCalls: Array<{ callId: string; name: string; input: object }> = [];
+
+      const result = await client.streamChatCompletions({
+        apiKey: "test-key",
+        modelId: "gpt-5.4-mini",
+        messages: [{ role: "user", content: "Read the README" }],
+        routingMode: "subscription",
+        tools: [{ name: "read_file", description: "Read a workspace file" }],
+        toolCallingStrategy: "auto",
+        onText: (text) => texts.push(text),
+        onToolCall: (toolCall) => toolCalls.push(toolCall),
+      });
+
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(texts).toEqual(["Let me read that file."]);
+      expect(toolCalls).toEqual([
+        {
+          type: "tool_call",
+          callId: "bridge_call_1",
+          name: "read_file",
+          input: { path: "README.md" },
+        },
+      ]);
+      expect(entries).toContain(
+        "warn:[chat] native tool-calling rejected by API (malformed tool-call data); retrying with bridge mode",
+      );
+    });
+
+    test("does not fall back to bridge for malformed tool-call when no tools are present", async () => {
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockImplementationOnce(async () =>
+          new Response(
+            JSON.stringify({
+              error: { message: "The model returned malformed tool-call data.", type: "invalid_request_error", code: "400" },
+            }),
+            { status: 400, headers: { "Content-Type": "application/json" } },
+          ),
+        );
+
+      const client = new NanoGptClient(fetchImpl as typeof fetch);
+
+      // Without tools, the malformed tool-call error should propagate as a normal failure.
+      await expect(
+        client.streamChatCompletions({
+          apiKey: "test-key",
+          modelId: "gpt-5.4-mini",
+          messages: [{ role: "user", content: "Hi" }],
+          routingMode: "subscription",
+          toolCallingStrategy: "auto",
+          onText: () => {},
+        }),
+      ).rejects.toThrow(/malformed tool-call/);
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
 });

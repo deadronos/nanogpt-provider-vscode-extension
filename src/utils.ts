@@ -60,6 +60,30 @@ export function formatRoleCounts(roleCounts: Record<string, number>): string {
     .join("|");
 }
 
+// ── JSON utilities ─────────────────────────────────────────────────────────
+
+/**
+ * Safely parses a JSON string, returning `undefined` when parsing fails
+ * instead of throwing. Use for parsing potentially malformed user or
+ * model input.
+ */
+export function tryParseJson(text: string): unknown | undefined {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Deep-clones a value via JSON round-trip serialisation. Safe for
+ * serialisable data; does not preserve functions, `Date`, `RegExp`, or
+ * circular references.
+ */
+export function deepClone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 /**
  * Safely formats an unknown error value as a string for logging.
  */

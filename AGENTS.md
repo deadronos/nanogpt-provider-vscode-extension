@@ -22,13 +22,24 @@ Source files organized into three layers with focused modules:
 | `src/logging.ts` | VS Code | Output channel and logger creation |
 | `src/vscode-messaging.ts` | VS Code | VS Code message-part compatibility (`toCoreMessages`, `toToolMode`, `createThinkingPart`) |
 | `src/client.ts` | Transport | HTTP client: model discovery and streaming chat completions. No VS Code API. |
+| `src/client-stream.ts` | Transport | SSE streaming execution (`executeStreamingRequest`, `emitParts`). No VS Code API. |
+| `src/client-bridge.ts` | Transport | Bridge orchestration, retry heuristics, scaffolding detection. No VS Code API. |
 | `src/utils.ts` | Shared | Cross-cutting helpers (abort/timeout composition, formatting, type guards) |
+| `src/provider-cache.ts` | VS Code | Model cache key creation, hydration, and persistence to globalState. |
+| `src/provider-state.ts` | VS Code | Warned-set hydration/persistence and `warnOnceInvalidConfig` helper. |
+| `src/provider-logging-helpers.ts` | VS Code | Message/tool/runtime-model summarization for sanitized logging. |
 | `src/nanogpt-types.ts` | Core | API constants, type definitions, `resolveRole`. No VS Code API, no I/O. |
 | `src/nanogpt-message.ts` | Core | Message/part conversion, tool serialization. No VS Code API, no I/O. |
 | `src/nanogpt-tool-bridge.ts` | Core | Tool-calling bridge prompt builder, history rewrite, and bridge-response normalization. No VS Code API, no I/O. |
+| `src/bridge-types.ts` | Core | Shared types for the tool-calling bridge subsystem. No VS Code API, no I/O. |
+| `src/bridge-message-builder.ts` | Core | Bridge prompt construction (`buildToolCallingBridgeMessages`, `buildToolCallingBridgeRepairMessages`). No VS Code API, no I/O. |
+| `src/bridge-payload-parser.ts` | Core | Bridge response entry point (`parseToolCallingBridgeResponse`), delegates to sub-parsers. No VS Code API, no I/O. |
+| `src/bridge-xml-parser.ts` | Core | XML-like `<tool_calls>` block extraction for bridge responses. No VS Code API, no I/O. |
+| `src/bridge-json-parser.ts` | Core | JSON extraction, bridge turn normalization, tool-call container parsing. No VS Code API, no I/O. |
 | `src/nanogpt-request.ts` | Core | Request body/header builder, `prepareChatRequest()` normalisation hook. No VS Code API, no I/O. |
 | `src/nanogpt-parser.ts` | Core | SSE parser and collectors. No VS Code API, no I/O. |
 | `src/nanogpt.ts` | Core | Barrel re-exports, model mapping, schema builder, token estimation. No VS Code API, no I/O. |
+| `src/default-models.ts` | Core | Default model catalogue surfaced when no API key or allowlist is configured. |
 
 Tests live in `test/` and run under Vitest in plain Node — no VS Code APIs are available there.
 

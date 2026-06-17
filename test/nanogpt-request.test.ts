@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildNanoGptChatCompletionRequest, prepareChatRequest } from "../src/nanogpt-request.js";
+import { buildNanoGptChatCompletionRequest, prepareChatRequest, truncateMessagesForContext } from "../src/nanogpt-request.js";
 import type { NanoGptChatMessage } from "../src/nanogpt-types.js";
 
 describe("nanogpt-request: buildNanoGptChatCompletionRequest", () => {
@@ -269,4 +269,92 @@ describe("nanogpt-request: prepareChatRequest", () => {
     expect(result).toHaveLength(4);
     expect(result).toEqual(messages);
   });
+
+  test("logs a warning when oversized inline images are dropped", () => {
+    const warnCalls: string[] = [];
+    const logger = { warn: (msg: string) => warnCalls.push(msg) };
+    const oversizedBase64 = "data:image/png;base64," + "A".repeat(15_000_000);
+    const messages = [
+      {
+        role: "user" as const,
+        content: [
+          { type: "text" as const, text: "Look at this" },
+          { type: "image_url" as const, image_url: { url: oversizedBase64 } },
+        ] as NanoGptChatMessage["content"],
+      },
+    ];
+    const result = prepareChatRequest(messages as unknown as NanoGptChatMessage[], logger);
+    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls[0]).toContain("dropped 1 oversized inline image");
+    expect(warnCalls[0]).toContain("role=user");
+
+    const parts = result[0]!.content as Array<{ type: string }>;
+    expect(parts.filter((p) => p.type === "image_url")).toHaveLength(0);
+    expect(parts.filter((p) => p.type === "text")).toHaveLength(1);
+  });
+
+  test("does not log when no images are dropped", () => {
+    const warnCalls: string[] = [];
+    const logger = { warn: (msg: string) => warnCalls.push(msg) };
+    const messages: NanoGptChatMessage[] = [
+      { role: "user", content: "Hello" },
+    ];
+    prepareChatRequest(messages, logger);
+    expect(warnCalls).toHaveLength(0);
+  });
+
+describe("truncateMessagesForContext", () => {
+  test("returns all messages unchanged when under budget", () => {
+    const messages = [
+      { role: "system", content: "You are helpful." } as NanoGptChatMessage,
+      { role: "user", content: "Hello" } as NanoGptChatMessage,
+      { role: "assistant", content: "Hi there!" } as NanoGptChatMessage,
+    ];
+    const result = truncateMessagesForContext(messages, 100000);
+    expect(result).toEqual(messages);
+  });
+
+  test("drops oldest non-system messages when over budget", () => {
+    const messages = [
+      { role: "system", content: "Sys" } as NanoGptChatMessage,
+      { role: "user", content: "A".repeat(4000) } as NanoGptChatMessage,
+      { role: "assistant", content: "B".repeat(4000) } as NanoGptChatMessage,
+      { role: "user", content: "C".repeat(1000) } as NanoGptChatMessage,
+    ];
+    const result = truncateMessagesForContext(messages, 1000);
+    expect(result).toHaveLength(2);
+    expect(result[0]?.role).toBe("system");
+    expect(result[1]?.role).toBe("user");
+    expect((result[1] as NanoGptChatMessage).content).toBe("C".repeat(1000));
+  });
+
+  test("keeps all system messages even when over budget", () => {
+    const messages = [
+      { role: "system", content: "S1" } as NanoGptChatMessage,
+      { role: "system", content: "S2" } as NanoGptChatMessage,
+      { role: "user", content: "A".repeat(4000) } as NanoGptChatMessage,
+    ];
+    const result = truncateMessagesForContext(messages, 5);
+    expect(result.map((m: NanoGptChatMessage) => m.role)).toEqual(["system", "system"]);
+  });
+
+  test("returns empty array for empty input", () => {
+    expect(truncateMessagesForContext([], 1000)).toEqual([]);
+  });
+
+  test("logs warning when messages are dropped", () => {
+    const warnings: string[] = [];
+    const logger = { warn: (msg: string) => warnings.push(msg) };
+    const messages = [
+      { role: "system", content: "Sys" } as NanoGptChatMessage,
+      { role: "user", content: "A".repeat(4000) } as NanoGptChatMessage,
+      { role: "user", content: "B".repeat(100) } as NanoGptChatMessage,
+    ];
+    truncateMessagesForContext(messages, 5, logger);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain("Dropped");
+    expect(warnings[0]).toContain("maxInputTokens=5");
+  });
+});
+
 });

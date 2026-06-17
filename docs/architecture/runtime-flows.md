@@ -115,10 +115,10 @@ Chat execution is exposed through `provideLanguageModelChatResponse()`.
 
 1. `client.streamChatCompletions()` selects `native`, `auto`, or `bridge` tool-calling behavior; `native` is the default again, and `auto`/`bridge` are explicit opt-in.
 2. The client builds the final HTTP request.
-3. The client performs a streaming `POST`.
-4. The client reads the SSE body incrementally.
-5. SSE deltas are converted to typed response parts.
-6. In `native` mode with tools, thin scaffolding text (e.g. "Let me gather related files..") that precedes tool calls is suppressed from `progress.report()` to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams.
+3. The client performs a streaming `POST` **with retry logic** (max 2 retries, exponential backoff with jitter). Transient failures (network errors, idle timeouts, 0-part responses) are retried automatically; non-retryable errors (auth, 4xx) propagate immediately.
+4. The client reads the SSE body incrementally **with a 60-second per-chunk idle timeout**. If no data arrives within 60s, the read is aborted and may trigger a retry.
+5. SSE deltas are converted to typed response parts. The parser tracks `finish_reason` and logs warnings for abnormal values (`"length"`, `"content_filter"`).
+6. In `native` and `auto` modes with tools, thin scaffolding text (e.g. "Let me gather related files..") that precedes tool calls is suppressed from `progress.report()` to avoid triggering VS Code's Copilot Chat loop-detection guard on BYOK streams. Both modes share a unified `shouldBufferNativeTurn` buffering path.
 7. In `auto`, a tool-enabled native turn that yields no tool calls and either no visible text or only likely scaffolding text is retried once with the bridge prompt.
 8. The provider maps those parts to VS Code response parts and reports them via `progress.report(...)`.
 
@@ -225,7 +225,7 @@ Bridge behavior:
 - assistant `tool_calls` history becomes assistant JSON text
 - `role: "tool"` history becomes user-visible tool-result text with an anti-repeat instruction
 - native `tools`, `tool_choice`, and `parallel_tool_calls` are omitted from the retried bridge request
-- malformed bridge replies get one JSON-only repair retry. If `toolMode: "required"` still omits usable tool calls after repair, the client returns `requiredToolWarning` and the provider emits it as a warning `LanguageModelTextPart` instead of surfacing raw prose
+- malformed bridge replies get one JSON-only repair retry. Bridged-turn reasoning deltas are buffered per-turn and only emitted on the final committed turn (not on discarded repair retries). If `toolMode: "required"` still omits usable tool calls after repair, the client returns `requiredToolWarning` and the provider emits it as a warning `LanguageModelTextPart` instead of surfacing raw prose
 
 ### Streamed tool call parsing
 
@@ -251,6 +251,7 @@ Reasoning is handled in both request shaping and response rendering.
   - `high`
   - `xhigh`
 - `auto` is local-only and means omission of `reasoning_effort`
+- invalid non-`auto` values trigger a one-time deduplicated warning (per provider instance lifetime) and fall back to omitting `reasoning_effort`
 
 ### Response side
 
@@ -296,9 +297,34 @@ Two cancellation systems are combined.
 Timeouts in use:
 
 - discovery: 30 seconds
-- streaming chat: 5 minutes
+- streaming chat: 5 minutes (global safety net)
+- **per-chunk idle timeout: 60 seconds** (resets on each successful chunk read)
 
-The streaming reader always releases its lock in a `finally` block.
+The per-chunk idle timeout prevents silent hangs when the server stops sending data without closing the connection. If no data arrives within 60 seconds, the stream read is aborted and the retry logic (see below) may attempt recovery.
+
+### Stream retry logic
+
+`streamChatCompletions()` wraps native streaming calls in a retry loop with exponential backoff:
+
+- **Max retries**: 2 attempts (3 total tries)
+- **Backoff**: 500ms → 1s → 2s (capped at 5s), with ±25% jitter
+- **Retry triggers**:
+  - Transient network errors (fetch failures, connection resets, timeouts)
+  - Idle timeout (no data for 60s)
+  - 0-part responses (server returned 200 OK but sent no text, reasoning, or tool calls)
+- **Non-retryable errors**: Auth failures (401), bad requests (4xx), already-aborted signals
+- **Cancellation-aware**: Retry backoff waits respect the abort signal and exit immediately if cancelled
+
+The retry loop clears buffered parts on each attempt to avoid duplicate text emission. Bridge mode and auto-bridge retries are not retried at the outer loop (they have their own internal retry semantics).
+
+### finish_reason validation
+
+The SSE parser tracks the last `finish_reason` seen in the stream. Abnormal values are logged as warnings and exposed in `StreamProcessingSummary.finishReason`:
+
+- `"length"` — response was truncated (hit max_tokens)
+- `"content_filter"` — response was refused by upstream content policy
+
+Normal values (`"stop"`, `"tool_calls"`, `undefined`) do not trigger warnings. This allows callers to distinguish normal completions from truncated or refused responses.
 
 ## 9. Logging Flow
 

@@ -47,7 +47,7 @@ export type {
   NanoGptToolBridgeParseResult,
 } from "./nanogpt-tool-bridge.js";
 
-export { buildNanoGptChatCompletionRequest, prepareChatRequest } from "./nanogpt-request.js";
+export { buildNanoGptChatCompletionRequest, prepareChatRequest, truncateMessagesForContext } from "./nanogpt-request.js";
 
 export {
   NanoGptSseParser,
@@ -57,6 +57,9 @@ export {
 
 // ── Module-specific exports (kept in this file) ──────────────────────────────
 
+import { Tiktoken } from "js-tiktoken/lite";
+import cl100k_base_ranks from "js-tiktoken/ranks/cl100k_base";
+import o200k_base_ranks from "js-tiktoken/ranks/o200k_base";
 import { isObject, isPositiveNumber } from "./utils.js";
 import {
   type NanoGptModelEntry,
@@ -67,6 +70,29 @@ import {
   resolveRole,
 } from "./nanogpt-types.js";
 import { getTextPartValue, toNanoGptImagePart } from "./nanogpt-message.js";
+
+// ── Lazy encoder cache ──────────────────────────────────────────────────────
+//
+// `Tiktoken` instances are expensive to construct (they load large BPE rank
+// tables), so we create them once per tokenizer family and reuse them for
+// the lifetime of the extension host.
+const encoderCache = new Map<NanoGptTokenizer, Tiktoken>();
+
+function getEncoder(tokenizer: NanoGptTokenizer): Tiktoken | null {
+  const cached = encoderCache.get(tokenizer);
+  if (cached) return cached;
+  if (tokenizer !== "cl100k_base" && tokenizer !== "o200k_base") {
+    return null;
+  }
+  try {
+    const rankData = tokenizer === "cl100k_base" ? cl100k_base_ranks : o200k_base_ranks;
+    const enc = new Tiktoken(rankData);
+    encoderCache.set(tokenizer, enc);
+    return enc;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Patterns identifying OpenAI families that use the `cl100k_base` BPE
@@ -177,7 +203,6 @@ export function buildModelConfigurationSchema(): VscodeModelMetadata["configurat
       routingMode: {
         type: "string",
         enum: ["subscription", "paygo"],
-        enumItemLabels: ["Subscription", "Pay as you go"],
         default: "subscription",
         description: "NanoGPT routing surface for chat completions.",
       },
@@ -189,7 +214,6 @@ export function buildModelConfigurationSchema(): VscodeModelMetadata["configurat
       reasoningEffort: {
         type: "string",
         enum: ["auto", "none", "minimal", "low", "medium", "high", "xhigh"],
-        enumItemLabels: ["Auto", "None", "Minimal", "Low", "Medium", "High", "Extra High"],
         default: "auto",
         group: "navigation",
         description: "Controls how much reasoning the model applies.",
@@ -197,14 +221,12 @@ export function buildModelConfigurationSchema(): VscodeModelMetadata["configurat
       reasoningOutput: {
         type: "string",
         enum: ["native", "hidden", "visible"],
-        enumItemLabels: ["Native", "Hidden", "Visible fallback"],
         default: "native",
         description: "Controls how streamed reasoning is surfaced by VS Code.",
       },
       toolCallingStrategy: {
         type: "string",
         enum: ["native", "auto", "bridge"],
-        enumItemLabels: ["Native", "Auto Retry", "Bridge"],
         default: "native",
         description:
           "Controls tool-calling reliability mode. Native forwards NanoGPT tools directly, auto retries empty or likely scaffolding-only native tool turns with a stricter bridge prompt, and bridge always uses the stricter bridge prompt.",
@@ -270,9 +292,11 @@ export function mapNanoGptModelsToVscode(
         tooltip: buildModelTooltip(id, contextWindow, maxOutputTokens),
         capabilities: {
           imageInput: Boolean(capabilities.imageInput ?? capabilities.vision ?? entry.vision),
-          toolCalling: Boolean(
-            capabilities.toolCalling ?? capabilities.tool_calling ?? entry.tool_calling,
-          ),
+            toolCalling: capabilities.parallel_tool_calls
+              ? 8
+              : Boolean(
+                  capabilities.toolCalling ?? capabilities.tool_calling ?? entry.tool_calling,
+                ),
           family,
           tokenizer,
         },
@@ -287,18 +311,27 @@ export function mapNanoGptModelsToVscode(
 }
 
 /**
- * Provides a rough token-count estimate for budget checks.
+ * Provides a token-count estimate for budget checks.
  *
- * Uses a simple character-count heuristic (`text.length / 4`) plus
- * a flat 1024-token cost per image. This is **not** model-accurate
- * but is sufficient for VS Code's approximate token reporting.
+ * When `tokenizer` is provided (from `model.capabilities.tokenizer`), uses
+ * the `js-tiktoken` BPE encoder for accurate token counts matching the
+ * model's native vocabulary. Falls back to a character-count heuristic
+ * (`text.length / 4`) when no tokenizer is available (e.g. offline default
+ * models or encoding errors). Images are always counted as a flat 1024
+ * tokens because VS Code does not decode image payloads here.
  */
 export function estimateTokenCount(
   value: string | VscodeLikeMessage,
   tools?: readonly VscodeLikeTool[],
+  tokenizer?: NanoGptTokenizer,
 ): number {
+  const encoder = tokenizer ? getEncoder(tokenizer) : null;
+
+  const countText = (text: string): number =>
+    encoder ? encoder.encode(text).length : Math.ceil(text.length / 4);
+
   if (typeof value === "string") {
-    return Math.max(1, Math.ceil(value.length / 4));
+    return Math.max(1, countText(value));
   }
 
   const imageCount = value.content.filter((part) => toNanoGptImagePart(part) !== null).length;
@@ -336,14 +369,14 @@ export function estimateTokenCount(
 
   if (tools && tools.length > 0) {
     for (const tool of tools) {
-      toolTokens += Math.ceil(tool.name.length / 4);
-      toolTokens += Math.ceil((tool.description ?? "").length / 4);
-      toolTokens += Math.ceil(JSON.stringify(tool.inputSchema ?? {}).length / 4);
+      toolTokens += countText(tool.name);
+      toolTokens += countText(tool.description ?? "");
+      toolTokens += countText(JSON.stringify(tool.inputSchema ?? {}));
     }
   }
 
   return Math.max(
     1,
-    Math.ceil(totalText.length / 4) + imageCount * 1024 + toolTokens,
+    countText(totalText) + imageCount * 1024 + toolTokens,
   );
 }

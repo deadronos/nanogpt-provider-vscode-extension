@@ -2,7 +2,7 @@
   "name": "nanogpt-provider-vscode-extension",
   "displayName": "NanoGPT Provider for VS Code",
   "description": "Bring NanoGPT models to VS Code and Copilot Chat as a language model provider.",
-  "version": "0.0.20",
+  "version": "0.0.21",
   "repository": {
     "type": "git",
     "url": "https://github.com/deadronos/nanogpt-provider-vscode-extension"
@@ -56,10 +56,6 @@
                 "subscription",
                 "paygo"
               ],
-              "enumItemLabels": [
-                "Subscription",
-                "Pay as you go"
-              ],
               "default": "subscription",
               "description": "NanoGPT routing surface for chat completions."
             },
@@ -79,15 +75,6 @@
                 "high",
                 "xhigh"
               ],
-              "enumItemLabels": [
-                "Auto",
-                "None",
-                "Minimal",
-                "Low",
-                "Medium",
-                "High",
-                "Extra High"
-              ],
               "default": "auto",
               "group": "navigation",
               "description": "Optional reasoning effort sent to reasoning-capable models."
@@ -99,11 +86,6 @@
                 "hidden",
                 "visible"
               ],
-              "enumItemLabels": [
-                "Native",
-                "Hidden",
-                "Visible fallback"
-              ],
               "default": "native",
               "description": "Controls how streamed reasoning is surfaced. Native uses VS Code's thinking part when available; visible falls back to normal text."
             },
@@ -113,11 +95,6 @@
                 "native",
                 "auto",
                 "bridge"
-              ],
-              "enumItemLabels": [
-                "Native",
-                "Auto Retry",
-                "Bridge"
               ],
               "default": "native",
               "description": "Controls tool-calling reliability mode. Native forwards NanoGPT tools directly, auto retries empty or likely scaffolding-only native tool turns with a stricter bridge prompt, and bridge always uses the stricter bridge prompt."
@@ -155,7 +132,7 @@
             "title": "Save your NanoGPT API key",
             "description": "Store the key in VS Code's secret storage so it never gets synced or committed with your workspace settings.\n[Open Manage API Key](command:nanogpt.manage)",
             "media": {
-              "markdown": "walkthrough/nanogpt-get-started.md#1-save-your-nanogpt-api-key"
+              "markdown": "walkthrough/nanogpt-get-started.md"
             }
           },
           {
@@ -163,7 +140,7 @@
             "title": "Pick NanoGPT models in Copilot Chat",
             "description": "Open the Copilot Chat model picker to add NanoGPT to the list of available vendors. If no models appear yet, the picker falls back to a small default catalogue so you can send a test message while discovery runs.\n[Open Model Picker](command:workbench.action.chat.manageModels)",
             "media": {
-              "markdown": "walkthrough/nanogpt-get-started.md#2-pick-nanogpt-models-in-copilot-chat"
+              "markdown": "walkthrough/nanogpt-get-started.md"
             }
           },
           {
@@ -171,7 +148,7 @@
             "title": "Tune NanoGPT per-model settings",
             "description": "Each NanoGPT model exposes a per-model configuration panel with routing surface, reasoning effort, reasoning output, and tool-calling strategy. Click the gear icon next to a NanoGPT model in the picker to edit these fields.",
             "media": {
-              "markdown": "walkthrough/nanogpt-get-started.md#3-tune-nanogpt-per-model-settings"
+              "markdown": "walkthrough/nanogpt-get-started.md"
             }
           },
           {
@@ -179,7 +156,7 @@
             "title": "Verify a chat round-trip",
             "description": "Send a short message through Copilot Chat with a NanoGPT model and watch the Output panel for a structured log line. Enable verbose logging in workspace settings if you need debug-level detail.\n[Run Refresh Models](command:nanogpt.refreshModels)",
             "media": {
-              "markdown": "walkthrough/nanogpt-get-started.md#4-verify-a-chat-round-trip"
+              "markdown": "walkthrough/nanogpt-get-started.md"
             }
           },
           {
@@ -187,7 +164,7 @@
             "title": "Reset NanoGPT (if you get stuck)",
             "description": "Wipe the saved API key, all `nanogpt.*` settings at every scope, and the cached model list. After the reset completes, VS Code offers a follow-up menu to re-enter the API key or jump to the model picker.\n[Run Reset](command:nanogpt.resetConfiguration)",
             "media": {
-              "markdown": "walkthrough/nanogpt-get-started.md#5-reset-nanogpt-if-you-get-stuck"
+              "markdown": "walkthrough/nanogpt-get-started.md"
             }
           }
         ]
@@ -273,7 +250,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint src test",
-    "package": "vsce package --no-dependencies --allow-missing-repository"
+    "package": "vsce package --allow-missing-repository"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^4.4.1",
@@ -291,5 +268,8 @@
     "@vscode/vsce-sign@2.0.9": true,
     "keytar@7.9.0": true,
     "fsevents@2.3.3": true
+  },
+  "dependencies": {
+    "js-tiktoken": "^1.0.21"
   }
 }
