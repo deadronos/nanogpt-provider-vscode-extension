@@ -325,7 +325,10 @@ progress estimates, not for actual API budgeting.
 | --- | --- | --- | --- |
 | **P1** | Forward `message.name` | Minutes | ~5 |
 | **P2** | `toolCalling: number` for parallel models | Minutes | ~3 |
-| **P3** | Model-specific tokenizer | Hours (adds dep) | ~40 |
+| **P3** | Model-specific tokenizer ✅ | ~2 hours | ~40 |
 
-Executing P1 + P2 closes 5/6 gaps as either implemented or intentionally
-skipped, leaving only the tokenizer gap as a future enhancement.
+Executing P1 + P2 + P3 closes all 6 gaps as either implemented or intentionally
+skipped. The tokenizer implementation uses `js-tiktoken` (pure JS, ~200 KB,
+no native deps) with a lazy encoder cache keyed by `NanoGptTokenizer`
+(`cl100k_base` / `o200k_base`). Falls back to the character-count heuristic
+when no tokenizer hint is available or encoding fails.

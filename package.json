@@ -268,5 +268,8 @@
     "@vscode/vsce-sign@2.0.9": true,
     "keytar@7.9.0": true,
     "fsevents@2.3.3": true
+  },
+  "dependencies": {
+    "js-tiktoken": "^1.0.21"
   }
 }

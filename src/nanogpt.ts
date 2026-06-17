@@ -68,6 +68,27 @@ import {
 } from "./nanogpt-types.js";
 import { getTextPartValue, toNanoGptImagePart } from "./nanogpt-message.js";
 
+import { getEncoding, type Tiktoken } from "js-tiktoken";
+
+// ── Lazy encoder cache ──────────────────────────────────────────────────────
+//
+// `Tiktoken` instances are expensive to construct (they load large BPE rank
+// tables), so we create them once per tokenizer family and reuse them for
+// the lifetime of the extension host.
+const encoderCache = new Map<NanoGptTokenizer, Tiktoken>();
+
+function getEncoder(tokenizer: NanoGptTokenizer): Tiktoken | null {
+  const cached = encoderCache.get(tokenizer);
+  if (cached) return cached;
+  try {
+    const enc = getEncoding(tokenizer);
+    encoderCache.set(tokenizer, enc);
+    return enc;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Patterns identifying OpenAI families that use the `cl100k_base` BPE
  * vocabulary (legacy GPT-3.5 / GPT-4, base GPT-3, embeddings, and
@@ -285,18 +306,27 @@ export function mapNanoGptModelsToVscode(
 }
 
 /**
- * Provides a rough token-count estimate for budget checks.
+ * Provides a token-count estimate for budget checks.
  *
- * Uses a simple character-count heuristic (`text.length / 4`) plus
- * a flat 1024-token cost per image. This is **not** model-accurate
- * but is sufficient for VS Code's approximate token reporting.
+ * When `tokenizer` is provided (from `model.capabilities.tokenizer`), uses
+ * the `js-tiktoken` BPE encoder for accurate token counts matching the
+ * model's native vocabulary. Falls back to a character-count heuristic
+ * (`text.length / 4`) when no tokenizer is available (e.g. offline default
+ * models or encoding errors). Images are always counted as a flat 1024
+ * tokens because VS Code does not decode image payloads here.
  */
 export function estimateTokenCount(
   value: string | VscodeLikeMessage,
   tools?: readonly VscodeLikeTool[],
+  tokenizer?: NanoGptTokenizer,
 ): number {
+  const encoder = tokenizer ? getEncoder(tokenizer) : null;
+
+  const countText = (text: string): number =>
+    encoder ? encoder.encode(text).length : Math.ceil(text.length / 4);
+
   if (typeof value === "string") {
-    return Math.max(1, Math.ceil(value.length / 4));
+    return Math.max(1, countText(value));
   }
 
   const imageCount = value.content.filter((part) => toNanoGptImagePart(part) !== null).length;
@@ -334,14 +364,14 @@ export function estimateTokenCount(
 
   if (tools && tools.length > 0) {
     for (const tool of tools) {
-      toolTokens += Math.ceil(tool.name.length / 4);
-      toolTokens += Math.ceil((tool.description ?? "").length / 4);
-      toolTokens += Math.ceil(JSON.stringify(tool.inputSchema ?? {}).length / 4);
+      toolTokens += countText(tool.name);
+      toolTokens += countText(tool.description ?? "");
+      toolTokens += countText(JSON.stringify(tool.inputSchema ?? {}));
     }
   }
 
   return Math.max(
     1,
-    Math.ceil(totalText.length / 4) + imageCount * 1024 + toolTokens,
+    countText(totalText) + imageCount * 1024 + toolTokens,
   );
 }

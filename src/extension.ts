@@ -734,11 +734,12 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
     text: string | vscode.LanguageModelChatRequestMessage,
     _token: vscode.CancellationToken,
   ): Promise<number> {
+      const tokenizer = _model.capabilities.tokenizer;
     if (typeof text === "string") {
-      return estimateTokenCount(text);
+        return estimateTokenCount(text, undefined, tokenizer);
     }
 
-    return estimateTokenCount(toCoreMessages([text])[0]);
+      return estimateTokenCount(toCoreMessages([text])[0], undefined, tokenizer);
   }
 
   /**
