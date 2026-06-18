@@ -80,7 +80,9 @@ const encoderCache = new Map<NanoGptTokenizer, Tiktoken>();
 
 function getEncoder(tokenizer: NanoGptTokenizer): Tiktoken | null {
   const cached = encoderCache.get(tokenizer);
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
   if (tokenizer !== "cl100k_base" && tokenizer !== "o200k_base") {
     return null;
   }
@@ -292,6 +294,12 @@ export function mapNanoGptModelsToVscode(
         tooltip: buildModelTooltip(id, contextWindow, maxOutputTokens),
         capabilities: {
           imageInput: Boolean(capabilities.imageInput ?? capabilities.vision ?? entry.vision),
+            // When the upstream advertises parallel tool support, surface a
+            // numeric `toolCalling` capability (VS Code accepts a positive
+            // integer to indicate the max parallel calls per turn). We use
+            // `8` as a representative upper bound; the exact limit is not
+            // currently reported by the NanoGPT discovery API. See
+            // `VscodeModelMetadata.capabilities.toolCalling` for details.
             toolCalling: capabilities.parallel_tool_calls
               ? 8
               : Boolean(

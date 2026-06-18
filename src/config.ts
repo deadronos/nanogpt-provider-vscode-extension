@@ -273,13 +273,14 @@ export type ResolveApiKeyOptions = {
  * 1. Per-model provider configuration (from Chat: Manage Language Models).
  * 2. VS Code secret storage (set via NanoGPT: Manage API Key command).
  *
- * The previous implementation also consulted `nanogpt.apiKey` from
- * workspace settings and the `NANOGPT_API_KEY` environment variable.
- * Those fallbacks were removed because workspace settings can be synced
- * or accidentally committed, and process environment values are
- * inherited by every subprocess the user opens from VS Code. To opt
- * back into the legacy fallback chain, pass
- * `{ allowInsecureSources: true }`.
+ * Workspace settings and the `NANOGPT_API_KEY` environment variable are
+ * intentionally not consulted by default because workspace settings can
+ * be synced or accidentally committed, and process environment values
+ * are inherited by every subprocess the user opens from VS Code. To opt
+ * back into those legacy fallback sources, pass
+ * `{ allowInsecureSources: true }`; when that flag is set, the resolver
+ * also checks (in order) `nanogpt.apiKey` in workspace settings and
+ * `process.env.NANOGPT_API_KEY`.
  */
 export async function resolveApiKey(
   context: vscode.ExtensionContext,

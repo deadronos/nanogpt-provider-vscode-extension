@@ -16,8 +16,7 @@ import {
   type VscodeModelMetadata,
 } from "./nanogpt.js";
 import { withTimeout, formatKeyValuePairs, getHeader, type ManagedAbortSignal } from "./utils.js";
-import { executeStreamingRequest, emitParts, type StreamProcessingSummary } from "./client-stream.js";
-import { NanoGptApiError } from "./client-stream.js";
+import { executeStreamingRequest, emitParts, NanoGptApiError, type StreamProcessingSummary } from "./client-stream.js";
 import {
   isLikelyToolScaffoldingText,
   collectTextParts,

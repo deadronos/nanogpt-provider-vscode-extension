@@ -4,7 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-### 0.0.21
+## 0.0.22
+
+- Merged the duplicate `client-stream.js` import in `src/client.ts` into a single named import.
+- Added explicit curly braces to single-line `if`/`for` blocks in `src/nanogpt-request.ts` and `src/nanogpt.ts` to clear the remaining `curly` lint warnings.
+- Documented the `VscodeModelMetadata.capabilities.toolCalling` numeric-vs-boolean convention in `src/nanogpt-types.ts` and the inline usage in `src/nanogpt.ts` so the magic-number `8` (representative max parallel tool calls when the upstream advertises `parallel_tool_calls`) is no longer undocumented.
+- Normalized curly double quotes (`\u201c` / `\u201d`) alongside curly single quotes in `src/client-bridge.ts` so the bridge scaffolding-detection heuristic behaves consistently when the model emits typographic double quotes inside preamble text.
+- Clarified the `resolveApiKey` JSDoc to accurately describe the gated workspace-setting and environment-variable fallbacks (rather than implying they were removed) and to specify the exact opt-in flag and resolution order.
+- Simplified the `NanoGptLanguageModelProvider.persistModelCache()` wrapper in `src/extension.ts` to a single non-async pass-through to the underlying helper.
+- Added 6 direct unit tests for `isLikelyToolScaffoldingText()` covering the curly-quote handling, sentence/length limits, and empty-input edge cases.
+
+## 0.0.21
 
 - Extracted `src/bridge-xml-parser.ts` (XML-like tool-call extraction) and `src/bridge-json-parser.ts` (JSON extraction, bridge turn normalization, tool-call container parsing) from `src/bridge-payload-parser.ts`. The original module is now a thin entry point that imports from both sub-parsers and runs the normalization chain.
 - Extracted `src/client-stream.ts` (`executeStreamingRequest`, `emitParts`, SSE pipeline) and `src/client-bridge.ts` (`streamCompletionsViaBridge`, `executeBridgeTurn`, scaffolding detection, bridge telemetry helpers) from `src/client.ts`. The HTTP client now delegates to these standalone modules.

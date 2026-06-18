@@ -100,6 +100,18 @@ export type NanoGptReasoningOutput = "hidden" | "native" | "visible";
 export type NanoGptToolCallingStrategy = "native" | "auto" | "bridge";
 export type NanoGptTokenizer = "cl100k_base" | "o200k_base";
 
+/**
+ * VS Code's `LanguageModelChatCapabilities.toolCalling` accepts either:
+ * - `false` when the model does not support tool calling, or
+ * - a positive integer representing the maximum number of tool calls
+ *   the model can emit in a single turn.
+ *
+ * The NanoGPT extension advertises `8` (a representative upper bound
+ * observed across upstream providers) when `parallel_tool_calls` is
+ * enabled, and `false` / `true` otherwise. The exact maximum is
+ * not currently returned by the NanoGPT discovery API, so the numeric
+ * value is treated as an enabling hint rather than a strict guarantee.
+ */
 export type VscodeModelMetadata = {
   id: string;
   name: string;
@@ -111,7 +123,7 @@ export type VscodeModelMetadata = {
   detail: string;
   capabilities: {
     imageInput: boolean;
-      toolCalling: boolean | number;
+    toolCalling: boolean | number;
     family?: string;
     tokenizer?: NanoGptTokenizer;
   };

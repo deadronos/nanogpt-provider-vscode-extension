@@ -270,8 +270,8 @@ export class NanoGptLanguageModelProvider implements ChatProviderApi {
    * NanoGPT API is unreachable. Errors are logged but never thrown so
    * the calling discovery path is not affected by persistence failures.
    */
-  private async persistModelCache(): Promise<void> {
-      await persistModelCache(this.context.globalState, this.modelCache, this.logger);
+  private persistModelCache(): Promise<void> {
+    return persistModelCache(this.context.globalState, this.modelCache, this.logger);
   }
 
   private notifyModelCatalogChanged(reason: string): void {
