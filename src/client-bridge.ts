@@ -54,7 +54,12 @@ export function createEmptyBridgeTelemetry(): NanoGptBridgeTelemetry {
 // ── Text analysis helpers ───────────────────────────────────────────────────
 
 function normalizeRetryHeuristicText(text: string): string {
-  return text.replace(/[\u2018\u2019]/g, "'").replace(/\s+/g, " ").trim().toLowerCase();
+  return text
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 export function isLikelyToolScaffoldingText(text: string): boolean {

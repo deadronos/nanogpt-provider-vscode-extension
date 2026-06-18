@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { NanoGptClient, type NanoGptLogger } from "../src/client.js";
+import { isLikelyToolScaffoldingText } from "../src/client-bridge.js";
 
 describe("NanoGptClient", () => {
   const REQUIRED_TOOL_MODE_FAILURE_TEXT =
@@ -1652,4 +1653,32 @@ describe("NanoGptClient", () => {
 
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
+
+  describe("isLikelyToolScaffoldingText", () => {
+    test("detects scaffolding without curly quotes", () => {
+      expect(isLikelyToolScaffoldingText("Let me check the files.")).toBe(true);
+    });
+
+    test("detects scaffolding with interior curly double quotes", () => {
+      expect(isLikelyToolScaffoldingText('Let me look at the \u201creadme\u201d file')).toBe(true);
+    });
+
+    test("returns false for non-scaffolding text with curly quotes", () => {
+      expect(isLikelyToolScaffoldingText("The \u201ccurly\u201d quote test.")).toBe(false);
+    });
+
+    test("returns false for empty or whitespace-only text", () => {
+      expect(isLikelyToolScaffoldingText("")).toBe(false);
+      expect(isLikelyToolScaffoldingText("   \n\t  ")).toBe(false);
+    });
+
+    test("returns false for scaffolding longer than 240 characters", () => {
+      const longScaffolding = "Let me check the " + "a".repeat(250) + " file";
+      expect(isLikelyToolScaffoldingText(longScaffolding)).toBe(false);
+    });
+
+    test("returns false for scaffolding with too many sentences", () => {
+      expect(isLikelyToolScaffoldingText("Let me read the file. Then check it. Then fix it.")).toBe(false);
+    });
+  });
 });
